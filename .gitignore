@@ -17,7 +17,9 @@ expo-env.d.ts
 /ios
 /android
 
-# ⬅️ نسمح فقط بملف Firebase
+# 🔓 فك الحجب تدريجيًا لمسار Firebase
+!android/
+!android/app/
 !android/app/google-services.json
 
 # ========================================
