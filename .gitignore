@@ -12,13 +12,10 @@ web-build/
 expo-env.d.ts
 
 # ========================================
-# Generated native folders
+# Generated native folders (Managed Expo)
 # ========================================
-/ios
 /android
-
-# 🔐 اسمح بملف Firebase فقط (ولا شيء غيره)
-!android/app/google-services.json
+/ios
 
 # ========================================
 # Android / iOS sensitive files
