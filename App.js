@@ -28,11 +28,11 @@ import PatientsScreen from "./screens/patients";
 import ScheduleManagementScreen from "./screens/schedule-management";
 import ProviderSettingsScreen from "./screens/provider-settings";
 import LocationPickerScreen from "./screens/location-picker";
-import DebugPushTokenScreen from "./screens/debug-push-token";
+// ...existing code...
 import {
   getUserRole,
   getToken,
-  registerForPushTokensAsync,
+  registerForPushNotificationsAsync,
   getExpoPushToken,
   getFcmPushToken,
   registerPushTokens
@@ -335,7 +335,7 @@ function AppInner() {
           setInitialRoute(destination);
 
           // 🔔 سجل التوكن وارسله للسيرفر
-          const { expoPushToken, fcmPushToken } = await registerForPushTokensAsync();
+          const { expoPushToken, fcmPushToken } = await registerForPushNotificationsAsync();
           if (expoPushToken || fcmPushToken) {
             const [storedExpo, storedFcm] = await Promise.all([
               getExpoPushToken(),
@@ -491,7 +491,7 @@ function AppInner() {
               headerShown: false,
               contentStyle: { direction: "rtl", backgroundColor: colors.background },
             }}
-            initialRouteName="DebugPushToken"
+            initialRouteName={initialRoute}
           >
             <Stack.Screen
               name="RoleSelection"
@@ -594,11 +594,7 @@ function AppInner() {
             />
 
             <Stack.Screen name="LocationPicker" component={LocationPickerScreen} />
-            <Stack.Screen
-              name="DebugPushToken"
-              component={DebugPushTokenScreen}
-              options={{ title: "Push Tokens Debug" }}
-            />
+           
           </Stack.Navigator>
         </NavigationContainer>
       </View>

@@ -577,7 +577,11 @@ export default function BookAppointmentScreen() {
                     onPress={() => setSelectedTimeIndex(index)}
                   >
                     <Text
-                      style={[styles.timeChipText, isActive && styles.timeChipTextActive]}
+                      style={[
+                        styles.timeChipText,
+                        isActive && styles.timeChipTextActive,
+                        !isActive && { color: '#111', fontWeight: 'bold' }
+                      ]}
                     >
                       {slot.label}
                     </Text>

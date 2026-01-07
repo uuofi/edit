@@ -161,12 +161,9 @@ export default function LoginScreen() {
         // 🔔 Register push token immediately after login
         try {
           const push = await import("../lib/pushNotifications");
-          const tokens = await push.registerForPushTokensAsync();
-          if (tokens?.expoPushToken || tokens?.fcmPushToken) {
-            await api.registerPushTokens({
-              expoPushToken: tokens.expoPushToken,
-              fcmPushToken: tokens.fcmPushToken,
-            });
+          const expoPushToken = await push.registerForPushNotificationsAsync();
+          if (expoPushToken) {
+            await api.registerPushTokens({ expoPushToken });
           }
         } catch (pushErr) {
           console.log("Push registration after login failed:", pushErr);

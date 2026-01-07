@@ -10,44 +10,37 @@
     "splash": {
       "image": "./assets/images/Medicare-first.png",
       "resizeMode": "cover",
-      "backgroundColor": "#000000",
-      "dark": {
-        "image": "./assets/images/Medicare-first.png",
-        "backgroundColor": "#000000"
-      }
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true,
-      "googleServicesFile": "./GoogleService-Info.plist",
+      "bundleIdentifier": "com.uuofi.MedicalBookingApp",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى الصور لتحديث ملفك الشخصي.",
         "NSPhotoLibraryAddUsageDescription": "يتم حفظ الصور في المعرض عند الحاجة.",
         "NSCameraUsageDescription": "نستخدم الكاميرا لالتقاط صور الملف الشخصي إذا رغبت بذلك.",
         "NSLocationWhenInUseUsageDescription": "نستخدم موقعك أثناء استخدام التطبيق لاختيار موقع العيادة على الخريطة.",
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "bundleIdentifier": "com.uuofi.MedicalBookingApp"
+      }
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
+      "package": "com.uuofi.MedicalBookingApp",
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/icon.png"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": false,
-      "predictiveBackGestureEnabled": false,
       "permissions": [
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE"
-      ],
-      "package": "com.uuofi.MedicalBookingApp"
+        "READ_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
-      "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "output": "single"
     },
     "plugins": [
       "expo-notifications",
@@ -56,12 +49,7 @@
         {
           "image": "./assets/images/Medicare-first.png",
           "resizeMode": "cover",
-          "backgroundColor": "#000000",
-          "dark": {
-            "image": "./assets/images/Medicare-first.png",
-            "backgroundColor": "#000000",
-            "resizeMode": "cover"
-          }
+          "backgroundColor": "#000000"
         }
       ]
     ],
@@ -70,9 +58,9 @@
       "privacyPolicyUrl": "https://medicare-iq.com/privacy",
       "accountDeletionUrl": "",
       "eas": {
-        "projectId": "705b9138-34fb-4a2c-a7ef-dee73b4a21c9"
+        "projectId": "a121585f-68c7-4b75-b248-37eede596013"
       }
     },
-    "owner": "mohammedaudays-organization"
+    "owner": "uuofimedicares-organization"
   }
 }

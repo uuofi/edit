@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "324312597164",
-    "project_id": "medicare-23193",
-    "storage_bucket": "medicare-23193.firebasestorage.app"
+    "project_number": "411875480038",
+    "project_id": "medicare-adba7",
+    "storage_bucket": "medicare-adba7.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:324312597164:android:249671ef3a9a966bb25509",
+        "mobilesdk_app_id": "1:411875480038:android:c57391d15dd072d8254627",
         "android_client_info": {
           "package_name": "com.uuofi.MedicalBookingApp"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBjJ0kdDGFNFfSv6gnayrJOVJFHP8SOy0Q"
+          "current_key": "AIzaSyAm-bWzYrfmdZ4cvpkYIU03OW16sryNpi0"
         }
       ],
       "services": {

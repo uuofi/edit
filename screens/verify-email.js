@@ -79,12 +79,9 @@ export default function VerifyEmailScreen() {
       try {
         const api = await import("../lib/api");
         const push = await import("../lib/pushNotifications");
-        const tokens = await push.registerForPushTokensAsync();
-        if (tokens?.expoPushToken || tokens?.fcmPushToken) {
-          await api.registerPushTokens({
-            expoPushToken: tokens.expoPushToken,
-            fcmPushToken: tokens.fcmPushToken,
-          });
+        const expoPushToken = await push.registerForPushNotificationsAsync();
+        if (expoPushToken) {
+          await api.registerPushTokens({ expoPushToken });
         }
       } catch (pushErr) {
         console.log("Push registration after verify failed:", pushErr);
@@ -250,23 +247,7 @@ const createStyles = (colors) =>
       textAlign: "center",
       writingDirection: "rtl",
     },
-    form: {
-      marginTop: 32,
-    },
-    infoText: {
-      fontSize: 14,
-      color: colors.textMuted,
-      marginBottom: 4,
-      textAlign: "right",
-      writingDirection: "rtl",
-    },
-    emailText: {
-      fontSize: 15,
-      color: colors.text,
-      marginBottom: 16,
-      textAlign: "right",
-      writingDirection: "rtl",
-    },
+    
     field: {
       marginBottom: 16,
     },
