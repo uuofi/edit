@@ -14,7 +14,6 @@ expo-env.d.ts
 # ========================================
 # Generated native folders (Managed Expo)
 # ========================================
-gogle-services.json
 /android
 /ios
 
