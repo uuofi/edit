@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Medicare",
-    "slug": "miedecal",
+    "slug": "medicare",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.uuofi.MedicalBookingApp",
+      "googleServicesFile": "./android/app/google-services.json",
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",

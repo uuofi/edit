@@ -62,7 +62,7 @@ import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
-import * as Notifications from "expo-notifications";
+import messaging from '@react-native-firebase/messaging';
 // (تم الاستيراد في الأعلى)
 // متغيرات تسجيل التوكن (يجب أن تكون معرفة في الأعلى)
 let lastPushRegisterAttemptAt = 0;
@@ -137,14 +137,14 @@ const DoctorOnlyProviderTabs = withRoleGuard(ProviderTabsNavigator, ["doctor"]);
 // 🔀 ref عشان نقدر نعمل navigate من برا الكومبوننت (من لسنر الإشعار)
 export const navigationRef = createNavigationContainerRef();
 
-// 🔔 كيف يتصرف الإشعار لما يوصل والتطبيق مفتوح
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+// استقبال الإشعارات في المقدمة
+import { onMessage, setBackgroundMessageHandler } from './lib/pushNotifications';
+onMessage((remoteMessage) => {
+  console.log('[PushDebug][FCM] Foreground message:', remoteMessage);
+  // يمكنك هنا عرض Toast أو إشعار مخصص
+});
+setBackgroundMessageHandler((remoteMessage) => {
+  console.log('[PushDebug][FCM] Background message:', remoteMessage);
 });
 
 function MainTabsNavigator() {
@@ -334,21 +334,32 @@ function AppInner() {
           const destination = role === "doctor" ? "ProviderTabs" : "MainTabs";
           setInitialRoute(destination);
 
-          // 🔔 سجل التوكن وارسله للسيرفر
-          const { expoPushToken, fcmPushToken } = await registerForPushNotificationsAsync();
+          // 🔔 سجل التوكن وارسله للسيرفر مع لوجات تفصيلية
+          const { expoPushToken, fcmPushToken } = await registerForPushNotificationsAsync() || {};
+          console.log("[PushDebug][App] Tokens from registerForPushNotificationsAsync:", { expoPushToken, fcmPushToken });
           if (expoPushToken || fcmPushToken) {
             const [storedExpo, storedFcm] = await Promise.all([
               getExpoPushToken(),
               getFcmPushToken(),
             ]);
+            console.log("[PushDebug][App] Stored tokens:", { storedExpo, storedFcm });
 
             const sameAsStored =
               String(storedExpo || "") === String(expoPushToken || "") &&
               String(storedFcm || "") === String(fcmPushToken || "");
 
             if (!sameAsStored) {
-              await registerPushTokens({ expoPushToken, fcmPushToken });
+              try {
+                const res = await registerPushTokens({ expoPushToken, fcmPushToken });
+                console.log("[PushDebug][App] registerPushTokens response:", res);
+              } catch (err) {
+                console.log("[PushDebug][App] registerPushTokens error:", err);
+              }
+            } else {
+              console.log("[PushDebug][App] Tokens are same as stored, not sending to server.");
             }
+          } else {
+            console.log("[PushDebug][App] No push tokens generated, nothing to send.");
           }
         } else {
           setInitialRoute("RoleSelection");
@@ -365,95 +376,78 @@ function AppInner() {
       }
     })();
 
-    // 🔔 لسنر لما المستخدم يضغط على الإشعار
-    const responseSub =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response?.notification?.request?.content?.data || {};
+    // 🔔 لسنر عند الضغط على الإشعار (FCM)
+    const unsubscribeNotificationOpened = messaging().onNotificationOpenedApp(remoteMessage => {
+      const data = remoteMessage?.data || {};
+      const { type, appointmentId, role } = data;
+      console.log('[PushDebug][FCM] Notification opened:', data);
+      if (!navigationRef.isReady()) return;
+      if (role === "patient" && type === "appointment_confirmed") {
+        navigationRef.navigate("MyAppointments");
+      }
+      if (role === "doctor" && type === "appointment_created") {
+        navigationRef.navigate("ProviderTabs", {
+          screen: "ProviderAppointmentsTab",
+        });
+      }
+    });
+    // 🔔 عند فتح التطبيق من إشعار مغلق
+    messaging().getInitialNotification().then(remoteMessage => {
+      if (remoteMessage) {
+        const data = remoteMessage?.data || {};
         const { type, appointmentId, role } = data;
-
-        console.log("Notification pressed:", data);
-
+        console.log('[PushDebug][FCM] App opened from quit state by notification:', data);
         if (!navigationRef.isReady()) return;
-
-        // 📌 مراجع: إشعار "تم تأكيد حجزك"
         if (role === "patient" && type === "appointment_confirmed") {
-          // نوديه على شاشة مواعيدي
           navigationRef.navigate("MyAppointments");
-          // لو بعدين سويت شاشة تجيب تفاصيل الموعد من الـ id
-          // نقدر نوديه مباشرة لـ AppointmentDetails مع appointmentId
-          // navigationRef.navigate("AppointmentDetails", { appointmentId });
         }
-
-        // 📌 دكتور: إشعار "حجز جديد"
         if (role === "doctor" && type === "appointment_created") {
-          // نوديه على تبويب حجوزات الدكتور
           navigationRef.navigate("ProviderTabs", {
             screen: "ProviderAppointmentsTab",
           });
         }
-      });
+      }
+    });
 
-    // 🔔 Keep push tokens updated if the OS rotates them (best-effort).
-    // Guarded to avoid crashing if the API isn't available in a given runtime.
-    const tokenSub =
-      typeof Notifications.addPushTokenListener === "function"
-        ? Notifications.addPushTokenListener(async (pushToken) => {
-            try {
-              // Only register when the user is logged in.
-              const authToken = await getToken();
-              if (!authToken) return;
-
-              const deviceToken = pushToken?.data || null;
-              const deviceType = pushToken?.type || null; // 'fcm' on Android
-              const fcmPushToken = deviceType === "fcm" ? deviceToken : null;
-
-              // De-dupe + cooldown to avoid infinite retries (e.g. server 429).
-              const now = Date.now();
-              const attemptKey = `fcm:${String(fcmPushToken || "")}`;
-              if (
-                attemptKey &&
-                attemptKey === lastPushRegisterAttemptKey &&
-                now - lastPushRegisterAttemptAt < PUSH_REGISTER_COOLDOWN_MS
-              ) {
-                return;
-              }
-
-              const storedFcm = await getFcmPushToken();
-              if (String(storedFcm || "") === String(fcmPushToken || "")) {
-                return;
-              }
-
-              lastPushRegisterAttemptAt = now;
-              lastPushRegisterAttemptKey = attemptKey;
-
-              // Register only the device token here. Expo token is handled on boot/login.
-              if (fcmPushToken) {
-                await registerPushTokens({ fcmPushToken });
-              }
-            } catch (e) {
-              const now = Date.now();
-              const status = e?.status;
-              if (status === 429) {
-                // Throttle spammy logs when server rate-limits.
-                if (now - lastPush429LogAt > PUSH_REGISTER_COOLDOWN_MS) {
-                  lastPush429LogAt = now;
-                  console.log("Push token listener registration rate-limited:", e?.toString?.() || e);
-                }
-                return;
-              }
-              console.log("Push token listener registration failed:", e);
-            }
-          })
-        : null;
+    // 🔔 تحديث التوكن عند تغييره من النظام
+    const unsubscribeTokenRefresh = messaging().onTokenRefresh(async (fcmPushToken) => {
+      try {
+        const authToken = await getToken();
+        if (!authToken) return;
+        const now = Date.now();
+        const attemptKey = `fcm:${String(fcmPushToken || "")}`;
+        if (
+          attemptKey &&
+          attemptKey === lastPushRegisterAttemptKey &&
+          now - lastPushRegisterAttemptAt < PUSH_REGISTER_COOLDOWN_MS
+        ) {
+          return;
+        }
+        const storedFcm = await getFcmPushToken();
+        if (String(storedFcm || "") === String(fcmPushToken || "")) {
+          return;
+        }
+        lastPushRegisterAttemptAt = now;
+        lastPushRegisterAttemptKey = attemptKey;
+        await registerPushTokens({ fcmPushToken });
+      } catch (e) {
+        const now = Date.now();
+        const status = e?.status;
+        if (status === 429) {
+          if (now - lastPush429LogAt > PUSH_REGISTER_COOLDOWN_MS) {
+            lastPush429LogAt = now;
+            console.log('Push token listener registration rate-limited:', e?.toString?.() || e);
+          }
+          return;
+        }
+        console.log('Push token listener registration failed:', e);
+      }
+    });
 
     return () => {
       active = false;
-      if (responseSub) {
-        responseSub.remove();
-      }
-      if (tokenSub) {
-        tokenSub.remove();
-      }
+      if (unsubscribeNotificationOpened) unsubscribeNotificationOpened();
+      if (unsubscribeTokenRefresh) unsubscribeTokenRefresh();
     };
   }, []);
 
