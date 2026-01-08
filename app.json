@@ -24,6 +24,7 @@
       }
     },
     "android": {
+      "jsEngine": "jsc",
       "package": "com.uuofi.MedicalBookingApp",
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
