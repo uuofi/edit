@@ -1,4 +1,7 @@
 {
+  "resolutions": {
+    "@react-native-async-storage/async-storage": "2.2.0"
+  },
   "name": "medicalbookingapp",
   "main": "index.js",
   "version": "1.0.0",
