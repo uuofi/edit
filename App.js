@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import {
   StatusBar,
@@ -34,7 +33,6 @@ import {
   getToken,
   registerForPushNotificationsAsync,
   getExpoPushToken,
-  getFcmPushToken,
   registerPushTokens
 } from "./lib/api";
 import RoleSelectionScreen from "./screens/role-selection";
@@ -62,7 +60,7 @@ import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
-
+import { saveExpoPushTokenToFirebase } from './lib/firebase';
 
 // ...existing code (تابع باقي الكود كما هو)...
 
@@ -131,15 +129,21 @@ const DoctorOnlyProviderTabs = withRoleGuard(ProviderTabsNavigator, ["doctor"]);
 // 🔀 ref عشان نقدر نعمل navigate من برا الكومبوننت (من لسنر الإشعار)
 export const navigationRef = createNavigationContainerRef();
 
-// استقبال الإشعارات في المقدمة
+// استقبال الإشعارات في المقدمة والخلفية
 import * as Notifications from 'expo-notifications';
-import { onMessage, setBackgroundMessageHandler } from './lib/pushNotifications';
-onMessage((notification) => {
-  console.log('[PushDebug][Expo] Foreground notification:', notification);
-  // يمكنك هنا عرض Toast أو إشعار مخصص
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
 });
-setBackgroundMessageHandler((notification) => {
-  console.log('[PushDebug][Expo] Background notification:', notification);
+
+Notifications.addNotificationReceivedListener((notification) => {
+  // استقبال الإشعار في المقدمة
+  console.log('[Expo] Foreground notification:', notification);
+  // يمكنك هنا عرض Toast أو إشعار مخصص
 });
 
 function MainTabsNavigator() {
@@ -316,45 +320,45 @@ function AppInner() {
     ];
   }, []);
 
+
   useEffect(() => {
     let active = true;
 
     (async () => {
       try {
         const [token, role] = await Promise.all([getToken(), getUserRole()]);
-
         if (!active) return;
+
+        // Expo Push Token
+        let expoPushToken;
+        try {
+          expoPushToken = await registerForPushNotificationsAsync();
+        } catch (err) {
+          console.log('[Expo] Error getting Expo token:', err);
+        }
 
         if (token) {
           const destination = role === "doctor" ? "ProviderTabs" : "MainTabs";
           setInitialRoute(destination);
 
-          // 🔔 سجل التوكن وارسله للسيرفر مع لوجات تفصيلية
-          const { expoPushToken, fcmPushToken } = await registerForPushNotificationsAsync() || {};
-          console.log("[PushDebug][App] Tokens from registerForPushNotificationsAsync:", { expoPushToken, fcmPushToken });
-          if (expoPushToken || fcmPushToken) {
-            const [storedExpo, storedFcm] = await Promise.all([
-              getExpoPushToken(),
-              getFcmPushToken(),
-            ]);
-            console.log("[PushDebug][App] Stored tokens:", { storedExpo, storedFcm });
-
-            const sameAsStored =
-              String(storedExpo || "") === String(expoPushToken || "") &&
-              String(storedFcm || "") === String(fcmPushToken || "");
-
-            if (!sameAsStored) {
+          // سجل التوكن وارسله للسيرفر و Firebase
+          if (expoPushToken) {
+            const storedExpo = await getExpoPushToken();
+            if (String(storedExpo || "") !== String(expoPushToken || "")) {
               try {
-                const res = await registerPushTokens({ expoPushToken, fcmPushToken });
-                console.log("[PushDebug][App] registerPushTokens response:", res);
+                // حفظ التوكن في السيرفر
+                await registerPushTokens({ expoPushToken });
+                // حفظ التوكن في فايربيس مع الدور
+                await saveExpoPushTokenToFirebase(token, expoPushToken, role);
+                console.log("[Expo] Expo token saved to server & Firebase.");
               } catch (err) {
-                console.log("[PushDebug][App] registerPushTokens error:", err);
+                console.log("[Expo] Error saving Expo token:", err);
               }
             } else {
-              console.log("[PushDebug][App] Tokens are same as stored, not sending to server.");
+              console.log("[Expo] Expo token is same as stored, not sending to server.");
             }
           } else {
-            console.log("[PushDebug][App] No push tokens generated, nothing to send.");
+            console.log("[Expo] No Expo push token generated, nothing to send.");
           }
         } else {
           setInitialRoute("RoleSelection");
