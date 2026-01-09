@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+
 import {
   StatusBar,
   I18nManager,
@@ -56,11 +57,34 @@ import AppointmentDetailsScreen from "./screens/appointment-details";
 import BookAppointmentScreen from "./screens/book-appointment";
 import { ThemeProvider } from "./lib/ThemeProvider";
 import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
-// (تم الاستيراد في الأعلى)
+
+
+// ...existing code...
+
+// مثال عملي صحيح لاستخدام react-native-threads داخل كومبوننت React
+// ضع هذا المثال داخل AppInner أو أي شاشة تريد اختبارها:
+//
+// import { Thread } from 'react-native-threads';
+// const [threadResult, setThreadResult] = useState(null);
+// useEffect(() => {
+//   const thread = new Thread('./thread.worker.js');
+//   thread.onmessage = (message) => {
+//     setThreadResult(message);
+//     thread.terminate();
+//   };
+//   thread.postMessage('ابدأ العمل');
+//   return () => thread.terminate();
+// }, []);
+// ... ثم اعرض النتيجة في الواجهة:
+// <Text>نتيجة الـ Thread: {threadResult}</Text>
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
 import { saveExpoPushTokenToFirebase } from './lib/firebase';
+import { runOnWorklet, WorkletsRuntime } from 'react-native-worklets';
+
+// مثال بسيط: تشغيل دالة في thread منفصل
+// runOnWorklet(() => { console.log('تشغيل في worklet!'); });
 
 // ...existing code (تابع باقي الكود كما هو)...
 
