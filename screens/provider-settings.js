@@ -17,6 +17,7 @@ import { logout, logoutAllDevices } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 import { useThemePreference } from "../lib/ThemeProvider";
 
+
 export default function ProviderSettingsScreen() {
   const navigation = useNavigation();
   const [busy, setBusy] = useState(false);

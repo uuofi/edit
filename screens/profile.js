@@ -14,6 +14,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getToken, logout, request } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
+
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const [user, setUser] = useState(null);

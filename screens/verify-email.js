@@ -79,9 +79,9 @@ export default function VerifyEmailScreen() {
       try {
         const api = await import("../lib/api");
         const push = await import("../lib/pushNotifications");
-        const { fcmPushToken } = await push.registerForPushNotificationsAsync() || {};
-        if (fcmPushToken) {
-          await api.registerPushTokens({ fcmPushToken });
+        const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
+        if (expoPushToken) {
+          await api.registerPushTokens({ expoPushToken });
         }
       } catch (pushErr) {
         console.log("Push registration after verify failed:", pushErr);

@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
   ScrollView,
   Image,
   TouchableOpacity,
@@ -9,10 +7,12 @@ import {
   Dimensions,
   Linking,
   Platform,
-  Animated,
   Easing,
   Alert,
+  View,
+  Text,
 } from "react-native";
+import * as Animatable from 'react-native-animatable';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useAppTheme } from "../../lib/useTheme";
@@ -31,6 +31,7 @@ import {
   FlaskConical,
 } from "lucide-react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -294,28 +295,7 @@ export default function App() {
 
   const navigation = useNavigation();
 
-  const pulseAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0,
-          duration: 900,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulseAnim]);
+  // حذف pulseAnim واستخدام Animatable بدلاً من Animated
 
   const handleEmergencyCallPress = async () => {
     const phone = "911";
@@ -511,25 +491,12 @@ export default function App() {
               <Text style={styles.emergencyLabel}>اتصل على الطوارئ</Text>
 
               <View style={styles.emergencyButtonWrap}>
-                <Animated.View
+                <Animatable.View
                   pointerEvents="none"
-                  style={[
-                    styles.emergencyPulse,
-                    {
-                      opacity: pulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.35, 0],
-                      }),
-                      transform: [
-                        {
-                          scale: pulseAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 1.65],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
+                  style={styles.emergencyPulse}
+                  animation="pulse"
+                  iterationCount="infinite"
+                  duration={1800}
                 />
                 <TouchableOpacity
                   activeOpacity={0.9}

@@ -62,13 +62,7 @@ import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
-import messaging from '@react-native-firebase/messaging';
-// (تم الاستيراد في الأعلى)
-// متغيرات تسجيل التوكن (يجب أن تكون معرفة في الأعلى)
-let lastPushRegisterAttemptAt = 0;
-let lastPushRegisterAttemptKey = 0;
-let lastPush429LogAt = 0;
-const PUSH_REGISTER_COOLDOWN_MS = 60_000;
+
 
 // ...existing code (تابع باقي الكود كما هو)...
 
@@ -138,13 +132,14 @@ const DoctorOnlyProviderTabs = withRoleGuard(ProviderTabsNavigator, ["doctor"]);
 export const navigationRef = createNavigationContainerRef();
 
 // استقبال الإشعارات في المقدمة
+import * as Notifications from 'expo-notifications';
 import { onMessage, setBackgroundMessageHandler } from './lib/pushNotifications';
-onMessage((remoteMessage) => {
-  console.log('[PushDebug][FCM] Foreground message:', remoteMessage);
+onMessage((notification) => {
+  console.log('[PushDebug][Expo] Foreground notification:', notification);
   // يمكنك هنا عرض Toast أو إشعار مخصص
 });
-setBackgroundMessageHandler((remoteMessage) => {
-  console.log('[PushDebug][FCM] Background message:', remoteMessage);
+setBackgroundMessageHandler((notification) => {
+  console.log('[PushDebug][Expo] Background notification:', notification);
 });
 
 function MainTabsNavigator() {
@@ -376,11 +371,11 @@ function AppInner() {
       }
     })();
 
-    // 🔔 لسنر عند الضغط على الإشعار (FCM)
-    const unsubscribeNotificationOpened = messaging().onNotificationOpenedApp(remoteMessage => {
-      const data = remoteMessage?.data || {};
+    // Expo: handle notification response (app opened from notification)
+    const notificationResponseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response?.notification?.request?.content?.data || {};
       const { type, appointmentId, role } = data;
-      console.log('[PushDebug][FCM] Notification opened:', data);
+      console.log('[PushDebug][Expo] Notification opened:', data);
       if (!navigationRef.isReady()) return;
       if (role === "patient" && type === "appointment_confirmed") {
         navigationRef.navigate("MyAppointments");
@@ -391,63 +386,10 @@ function AppInner() {
         });
       }
     });
-    // 🔔 عند فتح التطبيق من إشعار مغلق
-    messaging().getInitialNotification().then(remoteMessage => {
-      if (remoteMessage) {
-        const data = remoteMessage?.data || {};
-        const { type, appointmentId, role } = data;
-        console.log('[PushDebug][FCM] App opened from quit state by notification:', data);
-        if (!navigationRef.isReady()) return;
-        if (role === "patient" && type === "appointment_confirmed") {
-          navigationRef.navigate("MyAppointments");
-        }
-        if (role === "doctor" && type === "appointment_created") {
-          navigationRef.navigate("ProviderTabs", {
-            screen: "ProviderAppointmentsTab",
-          });
-        }
-      }
-    });
-
-    // 🔔 تحديث التوكن عند تغييره من النظام
-    const unsubscribeTokenRefresh = messaging().onTokenRefresh(async (fcmPushToken) => {
-      try {
-        const authToken = await getToken();
-        if (!authToken) return;
-        const now = Date.now();
-        const attemptKey = `fcm:${String(fcmPushToken || "")}`;
-        if (
-          attemptKey &&
-          attemptKey === lastPushRegisterAttemptKey &&
-          now - lastPushRegisterAttemptAt < PUSH_REGISTER_COOLDOWN_MS
-        ) {
-          return;
-        }
-        const storedFcm = await getFcmPushToken();
-        if (String(storedFcm || "") === String(fcmPushToken || "")) {
-          return;
-        }
-        lastPushRegisterAttemptAt = now;
-        lastPushRegisterAttemptKey = attemptKey;
-        await registerPushTokens({ fcmPushToken });
-      } catch (e) {
-        const now = Date.now();
-        const status = e?.status;
-        if (status === 429) {
-          if (now - lastPush429LogAt > PUSH_REGISTER_COOLDOWN_MS) {
-            lastPush429LogAt = now;
-            console.log('Push token listener registration rate-limited:', e?.toString?.() || e);
-          }
-          return;
-        }
-        console.log('Push token listener registration failed:', e);
-      }
-    });
 
     return () => {
       active = false;
-      if (unsubscribeNotificationOpened) unsubscribeNotificationOpened();
-      if (unsubscribeTokenRefresh) unsubscribeTokenRefresh();
+      if (notificationResponseListener) notificationResponseListener.remove();
     };
   }, []);
 

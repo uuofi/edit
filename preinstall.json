@@ -1,0 +1,7 @@
+{
+  "name": "preinstall-force-resolutions",
+  "version": "1.0.0",
+  "scripts": {
+    "preinstall": "npx npm-force-resolutions"
+  }
+}
