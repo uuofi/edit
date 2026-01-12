@@ -4,14 +4,18 @@
     "slug": "medicare",
     "version": "1.0.0",
     "orientation": "portrait",
+    "jsEngine": "hermes",
+
     "icon": "./assets/images/icon.png",
     "scheme": "medicalbookingapp",
     "userInterfaceStyle": "automatic",
+
     "splash": {
       "image": "./assets/images/Medicare-first.png",
       "resizeMode": "cover",
       "backgroundColor": "#000000"
     },
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.uuofi.MedicalBookingApp",
@@ -23,8 +27,8 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
+
     "android": {
-      "jsEngine": "jsc",
       "package": "com.uuofi.MedicalBookingApp",
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
@@ -41,9 +45,7 @@
         "POST_NOTIFICATIONS"
       ]
     },
-    "web": {
-      "output": "single"
-    },
+
     "plugins": [
       "expo-notifications",
       [
@@ -56,6 +58,7 @@
       ],
       "expo-font"
     ],
+
     "extra": {
       "apiBaseUrl": "https://api.medicare-iq.com",
       "privacyPolicyUrl": "https://medicare-iq.com/privacy",
@@ -64,6 +67,7 @@
         "projectId": "a121585f-68c7-4b75-b248-37eede596013"
       }
     },
+
     "owner": "uuofimedicares-organization"
   }
 }
