@@ -127,7 +127,7 @@ export default function ProviderProfileScreen() {
           )}
           <View style={styles.profileInfo}>
             <View style={styles.nameRow}>
-              <Text style={styles.name}>{doctor?.displayName || "الطبيب"}</Text>
+              <Text style={[styles.name, {writingDirection: "rtl", textAlign: "right"}]}>{doctor?.displayName || "الطبيب"}</Text>
               <TouchableOpacity
                 style={styles.inlineEditButton}
                 onPress={() => navigation.navigate("ProviderProfileEdit", { doctor })}

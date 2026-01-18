@@ -5,17 +5,14 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "jsEngine": "hermes",
-
     "icon": "./assets/images/icon.png",
     "scheme": "medicalbookingapp",
     "userInterfaceStyle": "automatic",
-
     "splash": {
       "image": "./assets/images/Medicare-first.png",
       "resizeMode": "cover",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#ffffff"
     },
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.uuofi.MedicalBookingApp",
@@ -27,7 +24,6 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "package": "com.uuofi.MedicalBookingApp",
       "googleServicesFile": "./google-services.json",
@@ -45,7 +41,6 @@
         "POST_NOTIFICATIONS"
       ]
     },
-
     "plugins": [
       "expo-notifications",
       [
@@ -53,21 +48,19 @@
         {
           "image": "./assets/images/Medicare-first.png",
           "resizeMode": "cover",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#ffffff"
         }
       ],
       "expo-font"
     ],
-
     "extra": {
       "apiBaseUrl": "https://api.medicare-iq.com",
       "privacyPolicyUrl": "https://medicare-iq.com/privacy",
-      "accountDeletionUrl": "",
+      "accountDeletionUrl": "https://medicare-iq.com/account-deletion",
       "eas": {
-        "projectId": "a121585f-68c7-4b75-b248-37eede596013"
+        "projectId": "c7ba6234-cb21-4031-9589-673676014d3c"
       }
     },
-
-    "owner": "uuofimedicares-organization"
+    "owner": "mohammedmediacres-organization"
   }
 }

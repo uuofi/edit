@@ -1,30 +1,29 @@
 // app/signup.js
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Image,
-} from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import * as ImagePicker from "expo-image-picker";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  API_BASE_URL,
-  saveRoleSelection,
-  getRoleSelection,
-  logout,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import {
+    API_BASE_URL, getRoleSelection,
+    logout, registerExpoPushToken, saveRoleSelection
 } from "../lib/api";
 import { specialtyOptions } from "../lib/constants/specialties";
+import { getExpoPushTokenOrThrow } from "../lib/pushNotifications";
 import { useAppTheme } from "../lib/useTheme";
 
 export default function SignupScreen() {
+    const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const navigation = useNavigation();
   const route = useRoute();
 
@@ -55,6 +54,9 @@ export default function SignupScreen() {
   const [secretaryPhone, setSecretaryPhone] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // نستخدم هذا العلم حتى لا نعيد تحميل القيم من params أكثر من مرة
+  const hasHydratedFromParams = useRef(false);
+
   const normalizeIraqPhoneTo10Digits = (value) => {
     let digits = String(value || "").replace(/\D/g, "");
     // If pasted as +964XXXXXXXXXX
@@ -67,6 +69,40 @@ export default function SignupScreen() {
     }
     return digits.slice(0, 10);
   };
+
+  // استرجاع حالة النموذج إذا رجعنا من شاشة أخرى (مثل الخريطة) وتم إعادة بناء الشاشة
+  useEffect(() => {
+    const formState = route.params?.formState;
+    if (!formState || hasHydratedFromParams.current) return;
+    hasHydratedFromParams.current = true;
+
+    if (typeof formState.role === "string") setRole(formState.role);
+    if (typeof formState.name === "string") setName(formState.name);
+    if (typeof formState.age === "string") setAge(formState.age);
+    if (typeof formState.phone === "string") setPhone(formState.phone);
+    if (typeof formState.password === "string") setPassword(formState.password);
+    if (typeof formState.confirm === "string") setConfirm(formState.confirm);
+    if (typeof formState.doctorSpecialty === "string")
+      setDoctorSpecialty(formState.doctorSpecialty);
+    if (typeof formState.licenseNumber === "string")
+      setLicenseNumber(formState.licenseNumber);
+    if (typeof formState.avatarUri === "string") setAvatarUri(formState.avatarUri);
+    if (typeof formState.avatarData === "string")
+      setAvatarData(formState.avatarData);
+    if (typeof formState.practiceLocation === "string")
+      setPracticeLocation(formState.practiceLocation);
+    if (typeof formState.practiceLocationLat === "number")
+      setPracticeLocationLat(formState.practiceLocationLat);
+    if (typeof formState.practiceLocationLng === "number")
+      setPracticeLocationLng(formState.practiceLocationLng);
+    if (typeof formState.certification === "string")
+      setCertification(formState.certification);
+    if (typeof formState.cv === "string") setCv(formState.cv);
+    if (typeof formState.consultationFee === "string")
+      setConsultationFee(formState.consultationFee);
+    if (typeof formState.secretaryPhone === "string")
+      setSecretaryPhone(formState.secretaryPhone);
+  }, [route.params?.formState]);
 
   useEffect(() => {
     let mounted = true;
@@ -159,18 +195,12 @@ export default function SignupScreen() {
     }
 
     if (role === "doctor") {
-      const feeValue = Number(consultationFee);
-      if (!consultationFee.trim() || Number.isNaN(feeValue) || feeValue <= 0) {
-        Alert.alert("خطأ", "يرجى تحديد رسوم الاستشارة بشكل صحيح.");
-        return;
-      }
-
+      // رسوم الاستشارة اختيارية الآن
       const secretaryDigits = normalizeIraqPhoneTo10Digits(secretaryPhone);
       if (!secretaryDigits) {
         Alert.alert("خطأ", "أدخل رقم السكرتير للتواصل مع المرضى.");
         return;
       }
-
       if (secretaryDigits.length !== 10 || !secretaryDigits.startsWith("7")) {
         Alert.alert("خطأ", "رقم السكرتير يجب أن يكون 10 أرقام ويبدأ بـ7");
         return;
@@ -244,9 +274,11 @@ export default function SignupScreen() {
           // 🔔 Register push token immediately after signup login
           try {
             const push = await import("../lib/pushNotifications");
-            const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
-            if (expoPushToken) {
-              await api.registerPushTokens({ expoPushToken });
+            try {
+              const expoPushToken = await getExpoPushTokenOrThrow();
+              await registerExpoPushToken(expoPushToken);
+            } catch (err) {
+              console.log('Push notification setup error:', err);
             }
           } catch (pushErr) {
             console.log("Push registration after signup failed:", pushErr);
@@ -471,9 +503,19 @@ export default function SignupScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>الخدمات وأسعارها</Text>
+              <Text style={styles.label}>رسوم الاستشارة (اختياري)</Text>
+              <TextInput
+                placeholder="اكتب سعر الاستشارة إذا كان ثابتاً أو اتركه فارغاً"
+                placeholderTextColor={colors.placeholder}
+                style={styles.input}
+                value={consultationFee}
+                onChangeText={setConsultationFee}
+                keyboardType="numeric"
+                multiline={false}
+                scrollEnabled={false}
+              />
               <Text style={{color: colors.placeholder, fontSize: 14, marginTop: 4}}>
-                يمكنك تحديد جميع الخدمات والأسعار من داخل التطبيق بعد إنشاء الحساب.
+                يمكنك ترك الحقل فارغ إذا كانت الاستشارة غير ثابتة وسيتم تحديدها من صفحة الخدمات لاحقاً.
               </Text>
             </View>
 
@@ -520,15 +562,37 @@ export default function SignupScreen() {
 
                       <TouchableOpacity
                         style={styles.mapPickerButton}
-                        onPress={() =>
+                        onPress={() => {
+                          // حفظ حالة النموذج الحالية وتمريرها إلى شاشة الخريطة
+                          const formState = {
+                            role,
+                            name,
+                            age,
+                            phone,
+                            password,
+                            confirm,
+                            doctorSpecialty,
+                            licenseNumber,
+                            avatarUri,
+                            avatarData,
+                            practiceLocation,
+                            practiceLocationLat,
+                            practiceLocationLng,
+                            certification,
+                            cv,
+                            consultationFee,
+                            secretaryPhone,
+                          };
+
                           navigation.navigate("LocationPicker", {
                             returnTo: "Signup",
                             title: "اختيار موقع العيادة",
                             initialLatitude: practiceLocationLat,
                             initialLongitude: practiceLocationLng,
                             initialAddress: practiceLocation,
-                          })
-                        }
+                            formState,
+                          });
+                        }}
                       >
                         <Text style={styles.mapPickerButtonText}>اختيار الموقع من الخريطة</Text>
                       </TouchableOpacity>
@@ -560,10 +624,42 @@ export default function SignupScreen() {
           </>
         )}
 
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+          <TouchableOpacity
+            onPress={() => setPrivacyAccepted((v) => !v)}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              backgroundColor: privacyAccepted ? colors.primary : 'transparent',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 8,
+            }}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: privacyAccepted }}
+          >
+            {privacyAccepted && (
+              <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>✓</Text>
+            )}
+          </TouchableOpacity>
+          <Text style={{ color: colors.text, fontSize: 14 }}>
+            أوافق على
+            <Text
+              style={{ color: colors.primary, textDecorationLine: 'underline' }}
+              onPress={() => navigation.navigate('PrivacyPolicy')}
+            > سياسة الخصوصية </Text>
+            و شروط الاستخدام
+          </Text>
+        </View>
+
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={[styles.primaryButton, { opacity: privacyAccepted && !loading ? 1 : 0.5 }]}
           onPress={handleSignup}
-          disabled={loading}
+          disabled={loading || !privacyAccepted}
         >
           <Text style={styles.primaryButtonText}>
             {loading ? "جارٍ الإنشاء..." : "إنشاء حساب"}

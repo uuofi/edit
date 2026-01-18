@@ -1,17 +1,18 @@
 // app/verify-email.js
+import { useNavigation, useRoute } from "@react-navigation/native";
 import React, { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { API_BASE_URL, saveToken, saveUserRole } from "../lib/api";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
+import { API_BASE_URL, registerExpoPushToken, saveToken, saveUserRole } from "../lib/api";
+import { getExpoPushTokenOrThrow } from "../lib/pushNotifications";
+
 import { useAppTheme } from "../lib/useTheme";
 
 export default function VerifyEmailScreen() {
@@ -79,9 +80,11 @@ export default function VerifyEmailScreen() {
       try {
         const api = await import("../lib/api");
         const push = await import("../lib/pushNotifications");
-        const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
-        if (expoPushToken) {
-          await api.registerPushTokens({ expoPushToken });
+        try {
+          const expoPushToken = await getExpoPushTokenOrThrow();
+          await registerExpoPushToken(expoPushToken);
+        } catch (err) {
+          console.log('Push notification setup error:', err);
         }
       } catch (pushErr) {
         console.log("Push registration after verify failed:", pushErr);

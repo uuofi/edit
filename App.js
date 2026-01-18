@@ -8,6 +8,18 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
+
+// ضبط اتجاه النص للعربي بشكل افتراضي
+Text.defaultProps = {
+  ...(Text.defaultProps || {}),
+  writingDirection: "rtl",
+  textAlign: "right",
+};
+TextInput.defaultProps = {
+  ...(TextInput.defaultProps || {}),
+  writingDirection: "rtl",
+  textAlign: "right",
+};
 import {
   NavigationContainer,
   createNavigationContainerRef,
@@ -59,9 +71,19 @@ import { ThemeProvider } from "./lib/ThemeProvider";
 import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
 
 
-
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
+// ضبط اتجاه النص للعربي بشكل افتراضي
+Text.defaultProps = {
+  ...(Text.defaultProps || {}),
+  writingDirection: "rtl",
+  textAlign: "right",
+};
+TextInput.defaultProps = {
+  ...(TextInput.defaultProps || {}),
+  writingDirection: "rtl",
+  textAlign: "right",
+};
 import { saveExpoPushTokenToFirebase } from './lib/firebase';
 
 

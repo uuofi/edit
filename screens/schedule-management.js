@@ -93,6 +93,7 @@ export default function ScheduleManagementScreen() {
   const durationOptions = [10, 15, 20, 30, 45, 60];
   const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [patientsPerSlot, setPatientsPerSlot] = useState(1);
   const toggleDay = (key) => {
     setActiveDays((prev) => ({
       ...prev,
@@ -135,6 +136,7 @@ export default function ScheduleManagementScreen() {
           ? schedule.emergency
           : DEFAULT_SCHEDULE.emergency
       );
+      setPatientsPerSlot(Number(schedule.patientsPerSlot) > 0 ? Number(schedule.patientsPerSlot) : 1);
     } catch (err) {
       console.error("Load schedule error:", err);
       Alert.alert("تعذّر تحميل الجدول", err.message || "حاول لاحقًا");
@@ -168,6 +170,7 @@ export default function ScheduleManagementScreen() {
       duration: selectedDuration,
       allowOnline,
       emergency,
+      patientsPerSlot,
     };
 
     try {
@@ -345,6 +348,38 @@ export default function ScheduleManagementScreen() {
                 </TouchableOpacity>
               );
             })}
+          </View>
+          <View style={styles.patientsRow}>
+            <Text style={styles.label}>عدد المرضى المسموح لكل فترة</Text>
+            <View style={styles.patientsCounterRow}>
+              <TouchableOpacity
+                style={styles.patientsButton}
+                onPress={() =>
+                  setPatientsPerSlot((prev) => {
+                    const next = Number(prev) - 1;
+                    return next >= 1 ? next : 1;
+                  })
+                }
+              >
+                <Feather name="minus" size={18} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={styles.patientsValue}>{patientsPerSlot}</Text>
+              <TouchableOpacity
+                style={styles.patientsButton}
+                onPress={() =>
+                  setPatientsPerSlot((prev) => {
+                    const current = Number(prev) || 1;
+                    const next = current + 1;
+                    return next > 20 ? 20 : next; // حد أقصى 20 مراجع في الفترة
+                  })
+                }
+              >
+                <Feather name="plus" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.patientsHint}>
+              يمكنك زيادة أو تقليل هذا الرقم إذا كنت تستقبل أكثر من مريض في نفس الفترة.
+            </Text>
           </View>
         </View>
 
@@ -657,6 +692,42 @@ const createStyles = (colors) =>
       fontSize: 12,
       color: colors.textMuted,
       textAlign: "right",
+    },
+    patientsRow: {
+      marginTop: 16,
+      width: "100%",
+      alignItems: "flex-end", // حتى يكون العداد بمحاذاة اليسار
+    },
+    patientsCounterRow: {
+      marginTop: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-start",
+      gap: 12,
+    },
+    patientsButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    patientsValue: {
+      minWidth: 40,
+      textAlign: "center",
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    patientsHint: {
+      marginTop: 6,
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "left",
+      alignSelf: "flex-start",
     },
     footer: {
       paddingHorizontal: 20,

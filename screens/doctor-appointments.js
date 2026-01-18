@@ -23,10 +23,18 @@ export default function DoctorAppointments() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
+  const [acceptingAll, setAcceptingAll] = useState(false);
   const fetchingRef = useRef(false);
 
   const normalizePhone = (raw) => {
     if (!raw) return "";
+      {/* طبقة انتظار عند قبول الكل */}
+      {acceptingAll && (
+        <View style={styles.overlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.overlayText}>جاري قبول جميع الطلبات...</Text>
+        </View>
+      )}
     let digits = String(raw).replace(/[^0-9]/g, "");
     if (!digits) return "";
     if (digits.startsWith("0")) {
@@ -79,21 +87,36 @@ export default function DoctorAppointments() {
     if (!silent) setLoading(true);
     try {
       const data = await fetchDoctorAppointments();
-      setAppointments(data.appointments || []);
+      setAppointments(data);
     } catch (err) {
-      console.log("Doctor appointments fetch error:", err);
       Alert.alert("خطأ", err.message || "تعذّر تحميل الحجوزات");
     } finally {
+      setLoading(false);
       fetchingRef.current = false;
-      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadAppointments();
-    const interval = setInterval(() => loadAppointments({ silent: true }), 15000);
-    return () => clearInterval(interval);
   }, []);
+
+  const handleAcceptAll = async () => {
+    setAcceptingAll(true);
+    try {
+      const pending = appointments.filter((a) => a.status === "pending");
+      for (const appt of pending) {
+        try {
+          await acceptDoctorAppointment(appt._id);
+        } catch (e) {}
+      }
+      Alert.alert("تم", "تم قبول جميع الطلبات المعلقة");
+      await loadAppointments();
+    } catch (err) {
+      Alert.alert("خطأ", err.message || "تعذّر قبول الكل");
+    } finally {
+      setAcceptingAll(false);
+    }
+  };
 
   const handleAccept = async (id) => {
     setAcceptingId(id);
@@ -121,6 +144,16 @@ export default function DoctorAppointments() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>طلبات الحجوزات</Text>
+        {/* زر قبول الكل */}
+        {appointments.some((a) => a.status === "pending") && (
+          <TouchableOpacity
+            style={[styles.refreshButton, { backgroundColor: '#10B981', marginBottom: 12 }]}
+            onPress={handleAcceptAll}
+            disabled={acceptingAll}
+          >
+            <Text style={styles.refreshText}>{acceptingAll ? "جاري القبول..." : "قبول الكل"}</Text>
+          </TouchableOpacity>
+        )}
         {appointments.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>لا توجد حجوزات حالياً.</Text>
@@ -171,6 +204,7 @@ export default function DoctorAppointments() {
                 <Text style={styles.notesText}>{appointment.notes}</Text>
               </View>
             ) : null}
+
             <Text style={styles.statusText}>الحالة: {appointment.status}</Text>
             <View style={styles.actionsRow}>
               <TouchableOpacity
@@ -217,6 +251,24 @@ function createStyles(colors, isDark) {
       flex: 1,
       justifyContent: "center",
       alignItems: "center",
+    },
+    overlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.25)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 100,
+    },
+    overlayText: {
+      marginTop: 16,
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: '700',
+      backgroundColor: 'transparent',
     },
     title: {
       fontSize: 22,

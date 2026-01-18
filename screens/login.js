@@ -1,29 +1,31 @@
 // app/login.js
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
+import Constants from "expo-constants";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ScrollView,
+  Alert,
+  Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
-  View,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Image,
-  Linking,
+  View,
 } from "react-native";
-import Constants from "expo-constants";
-import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import {
   API_BASE_URL,
-  saveRoleSelection,
   getRoleSelection,
-  logout,
   getToken,
   getUserRole,
+  logout,
+  registerExpoPushToken,
+  saveRoleSelection
 } from "../lib/api";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
+import { getExpoPushTokenOrThrow } from "../lib/pushNotifications";
+
 import { useAppTheme } from "../lib/useTheme";
 export default function LoginScreen() {
   const { colors } = useAppTheme();
@@ -161,9 +163,11 @@ export default function LoginScreen() {
         // 🔔 Register push token immediately after login
         try {
           const push = await import("../lib/pushNotifications");
-          const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
-          if (expoPushToken) {
-            await api.registerPushTokens({ expoPushToken });
+          try {
+            const expoPushToken = await getExpoPushTokenOrThrow();
+            await registerExpoPushToken(expoPushToken);
+          } catch (err) {
+            console.log('Push notification setup error:', err);
           }
         } catch (pushErr) {
           console.log("Push registration after login failed:", pushErr);

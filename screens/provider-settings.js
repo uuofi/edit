@@ -145,17 +145,22 @@ export default function ProviderSettingsScreen() {
         <View style={[styles.card, { marginTop: 12 }]}> 
           <Feather name="trash-2" size={22} color="#DC2626" />
           <Text style={styles.title}>حذف الحساب</Text>
-          <Text style={styles.text}>الحذف نهائي ولا يمكن التراجع عنه.</Text>
+          <Text style={styles.text}>الحذف نهائي ولا يمكن التراجع عنه. سيتم توجيهك إلى صفحة حذف الحساب على الموقع.</Text>
           <TouchableOpacity
             style={[styles.dangerBtn, busy && { opacity: 0.7 }]}
-            onPress={() => navigation.navigate("DeleteAccount")}
+            onPress={() => {
+              Alert.alert(
+                "تأكيد حذف الحساب",
+                "سيتم توجيهك إلى صفحة حذف الحساب على الموقع. هل تريد المتابعة؟",
+                [
+                  { text: "إلغاء", style: "cancel" },
+                  { text: "متابعة", style: "destructive", onPress: () => openUrl(extra?.accountDeletionUrl || "https://medicare-iq.com/account-deletion") }
+                ]
+              );
+            }}
             disabled={busy}
           >
-            {busy ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text style={styles.dangerBtnText}>حذف الحساب</Text>
-            )}
+            <Text style={styles.dangerBtnText}>حذف الحساب</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

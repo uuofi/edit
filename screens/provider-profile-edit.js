@@ -378,6 +378,7 @@ const createStyles = (colors) =>
       fontSize: 13,
       color: colors.textMuted,
       marginBottom: 4,
+      textAlign: "left",
     },
     input: {
       borderWidth: 1,
@@ -409,6 +410,7 @@ const createStyles = (colors) =>
     multiline: {
       minHeight: 80,
       textAlignVertical: "top",
+      textAlign: "left",
     },
     splitRow: {
       flexDirection: "row-reverse",

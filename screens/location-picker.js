@@ -55,6 +55,7 @@ export default function LocationPickerScreen() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const formState = params.formState;
 
   const reverseGeocode = async (latitude, longitude) => {
     try {
@@ -214,6 +215,8 @@ export default function LocationPickerScreen() {
           longitude: selected.longitude,
           address: selected.address || "",
         },
+        // نعيد تمرير حالة النموذج حتى لو أعاد React Navigation بناء الشاشة
+        formState,
       },
       merge: true,
     });

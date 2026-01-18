@@ -142,6 +142,7 @@ export default function ProviderAppointmentsScreen() {
   const emptyManualForm = {
     patientName: "",
     patientPhone: "",
+    companionName: "", // اسم المتابع لحالة المريض (اختياري)
     appointmentDate: "",
     appointmentDateIso: "",
     appointmentTime: "",
@@ -716,7 +717,7 @@ export default function ProviderAppointmentsScreen() {
 
       <View style={styles.scanBar}>
         <TouchableOpacity style={styles.scanButton} onPress={openScanner}>
-          <Feather name="camera" size={18} color="#0EA5E9" />
+          <Feather name="camera" size={18} color="#0080ff" />
           <Text style={styles.scanButtonText}>مسح باركود المراجع</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -921,6 +922,16 @@ export default function ProviderAppointmentsScreen() {
                   keyboardType="phone-pad"
                   value={manualForm.patientPhone}
                   onChangeText={(v) => updateManualForm("patientPhone", v)}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>اسم المتابع (اختياري)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="مثال : دكتورة اية "
+                  value={manualForm.companionName}
+                  onChangeText={(v) => updateManualForm("companionName", v)}
                 />
               </View>
 
@@ -1250,7 +1261,7 @@ const createStyles = (colors, isDark) => {
   const dangerTint = isDark ? "rgba(239,68,68,0.16)" : "#FEE2E2";
   const blockTint = isDark ? "rgba(239,68,68,0.16)" : "#FEF2F2";
   const chatDisabled = isDark ? "rgba(255,255,255,0.08)" : "#E5E7EB";
-  const modalShadow = isDark ? colors.surface : "#111827";
+  const modalShadow = isDark ? colors.surface : "#002981";
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.background },

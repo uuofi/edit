@@ -133,11 +133,20 @@ export default function ProfileSettingsScreen() {
           <Feather name="trash-2" size={22} color="#DC2626" />
           <Text style={styles.title}>حذف الحساب</Text>
           <Text style={styles.text}>
-            إذا حذفت الحساب لن تتمكن من استرجاعه.
+            الحذف نهائي ولا يمكن استرجاع الحساب. سيتم توجيهك إلى صفحة حذف الحساب على الموقع.
           </Text>
           <TouchableOpacity
             style={[styles.dangerBtn, busy && { opacity: 0.7 }]}
-            onPress={() => navigation.navigate("DeleteAccount")}
+            onPress={() => {
+              Alert.alert(
+                "تأكيد حذف الحساب",
+                "سيتم توجيهك إلى صفحة حذف الحساب على الموقع. هل تريد المتابعة؟",
+                [
+                  { text: "إلغاء", style: "cancel" },
+                  { text: "متابعة", style: "destructive", onPress: () => openUrl(extra?.accountDeletionUrl || "https://medicare-iq.com/account-deletion") }
+                ]
+              );
+            }}
             disabled={busy}
           >
             <Text style={styles.dangerBtnText}>حذف الحساب</Text>

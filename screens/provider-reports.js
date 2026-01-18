@@ -1,3 +1,11 @@
+// دالة تحويل التاريخ إلى iso بتوقيت UTC
+const toUtcDateIso = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -45,7 +53,7 @@ const buildDaysRange = (startIso) => {
     const dayKey = WEEKDAY_KEYS[cursor.getDay()];
     days.push({
       key: `${cursor.getTime()}`,
-      iso: toLocalDateIso(cursor),
+      iso: toUtcDateIso(cursor),
       label: `${DAY_LABELS[dayKey] || dayKey} ${cursor.toLocaleDateString("ar-EG", {
         day: "numeric",
         month: "numeric",
@@ -89,6 +97,13 @@ export default function ProviderReportsScreen() {
     loadAppointments();
   }, [loadAppointments]);
 
+  // Log appointments and date info for debugging
+  useEffect(() => {
+    console.log('appointments:', appointments.map(a => ({ id: a._id, appointmentDateIso: a.appointmentDateIso, appointmentDate: a.appointmentDate, status: a.status })));
+    console.log('selectedIso:', selectedIso);
+    console.log('days:', days);
+  }, [appointments, selectedIso, days]);
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -112,20 +127,37 @@ export default function ProviderReportsScreen() {
   }, []);
 
   const filtered = useMemo(
-    () => appointments.filter((a) => sameDay(a, selectedIso)),
+    () => appointments.filter((a) => a.appointmentDateIso === selectedIso),
     [appointments, selectedIso]
   );
 
   const billable = useMemo(
-    () => filtered.filter((a) => a.status !== "cancelled"),
+    () => filtered,
     [filtered]
   );
 
+  useEffect(() => {
+    console.log('appointments:', appointments);
+    console.log('filtered:', filtered);
+    console.log('billable:', billable);
+    console.log('doctorFee:', doctorFee);
+    if (billable.length > 0) {
+      console.log('consultationFee from billable[0]:', billable[0]?.doctorProfile?.consultationFee);
+    }
+  }, [appointments, filtered, billable, doctorFee]);
+
   const totalMoney = useMemo(() => {
     if (!billable.length) return 0;
-    const fee = doctorFee || Number(billable[0]?.doctorProfile?.consultationFee) || 0;
-    return fee * billable.length;
-  }, [billable, doctorFee]);
+    // جمع كل الأسعار من service.price أو consultationFee أو doctorFee
+    return billable.reduce((sum, item) => {
+      const price =
+        (item.service && typeof item.service.price === "number" ? item.service.price : 0) ||
+        Number(item.consultationFee) ||
+        Number(item.doctorFee) ||
+        0;
+      return sum + price;
+    }, 0);
+  }, [billable]);
 
   const openDrawer = () => {
     if (typeof navigation?.openDrawer === "function") {

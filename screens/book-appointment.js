@@ -377,7 +377,8 @@ export default function BookAppointmentScreen() {
       doctorRole,
       specialty,
       specialtySlug,
-      appointmentDate: `${selectedDate.day}، ${selectedDate.displayDate}`,
+      // بناء نص التاريخ بشكل متوافق مع قيمة iso
+      appointmentDate: `${selectedDate.day}، ${Number(selectedDate.iso.split('-')[2])}`,
       appointmentDateIso: selectedDate.iso,
       appointmentTime: selectedSlot.label,
       appointmentTimeValue: selectedSlot.value,
