@@ -13,22 +13,29 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
   acceptDoctorAppointment,
   cancelDoctorAppointment,
-  deleteDoctorAppointment,
+  cancelDoctorCenterBooking,
+  completeDoctorAppointment,
+  rescheduleDoctorAppointment,
   createDoctorAppointment,
+  assignEmployeeToAppointment,
+  fetchSecretaries,
   ApiError,
   fetchDoctorAppointments,
+  fetchDoctorCenterBookings,
+  fetchMyDoctorCenters,
   fetchDoctorDashboard,
   fetchDoctorBlockedSlots,
   getBlock,
   setBlock,
+  acceptDoctorCenterBooking,
+  logout,
 } from "../lib/api";
 import { STATUS_LABELS } from "../lib/constants/statusLabels";
 import {
@@ -101,6 +108,33 @@ const createTimeSlots = (schedule) => {
   return slots;
 };
 
+/** Return YYYY-MM-DD using LOCAL date components (avoids UTC shift). */
+const toLocalIso = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const toComparableDateIso = (appointment) => {
+  const raw = String(
+    appointment?.appointmentDateIso || appointment?.appointmentDate || ""
+  ).trim();
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toLocalIso(parsed);
+  }
+
+  const partialIso = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(partialIso) ? partialIso : "";
+};
+
 const getNextActiveDates = (activeDays, count = 7) => {
   const workingDays =
     Array.isArray(activeDays) && activeDays.length
@@ -113,11 +147,12 @@ const getNextActiveDates = (activeDays, count = 7) => {
   while (dates.length < count) {
     const dayKey = WEEKDAY_KEYS[pointer.getDay()];
     if (workingDays.includes(dayKey)) {
+      const localIso = toLocalIso(pointer);
       dates.push({
-        key: `${dayKey}-${pointer.toISOString()}`,
+        key: `${dayKey}-${localIso}`,
         day: DAY_LABELS[dayKey] || dayKey,
         displayDate: pointer.toLocaleDateString("ar-EG", { day: "numeric" }),
-        iso: pointer.toISOString().split("T")[0],
+        iso: localIso,
       });
     }
     pointer.setDate(pointer.getDate() + 1);
@@ -128,18 +163,25 @@ const getNextActiveDates = (activeDays, count = 7) => {
 
 export default function ProviderAppointmentsScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [todayOnly, setTodayOnly] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
+  const [bulkActionLoading, setBulkActionLoading] = useState({
+    acceptAll: false,
+    completeAll: false,
+  });
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [recentCancelled, setRecentCancelled] = useState(null);
   const [expandedQrId, setExpandedQrId] = useState(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const emptyManualForm = {
+    patientId: "",
     patientName: "",
     patientPhone: "",
     appointmentDate: "",
@@ -151,6 +193,11 @@ export default function ProviderAppointmentsScreen() {
   const [manualModalVisible, setManualModalVisible] = useState(false);
   const [manualForm, setManualForm] = useState(emptyManualForm);
   const [manualLoading, setManualLoading] = useState(false);
+  const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [rescheduleDateIndex, setRescheduleDateIndex] = useState(null);
+  const [rescheduleTimeIndex, setRescheduleTimeIndex] = useState(null);
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
   const [doctorProfile, setDoctorProfile] = useState(null);
   const [doctorId, setDoctorId] = useState(null);
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
@@ -158,7 +205,16 @@ export default function ProviderAppointmentsScreen() {
   const [selectedDateIndex, setSelectedDateIndex] = useState(null);
   const [selectedTimeIndex, setSelectedTimeIndex] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
+
+  // ─── Assign Employee state ─────────────────────────────────
+  const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [assignTarget, setAssignTarget] = useState(null); // appointment to assign
+  const [employeeList, setEmployeeList] = useState([]);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [employeeListLoading, setEmployeeListLoading] = useState(false);
+
   const fetchingRef = useRef(false);
+  const consumedManualRequestRef = useRef(null);
 
   const availableDates = useMemo(
     () => getNextActiveDates(schedule.activeDays, 7),
@@ -181,12 +237,33 @@ export default function ProviderAppointmentsScreen() {
   const selectedDate = selectedDateIndex !== null ? availableDates[selectedDateIndex] : null;
   const selectedDateIso = selectedDate?.iso;
 
+  const selectedRescheduleDate =
+    rescheduleDateIndex !== null ? availableDates[rescheduleDateIndex] : null;
+  const selectedRescheduleDateIso = selectedRescheduleDate?.iso;
+
   const filteredTimeSlotOptions = useMemo(() => {
     if (!selectedDateIso) return baseTimeSlotOptions;
     const blockedForDate = blockedSlots[selectedDateIso] || [];
     if (!blockedForDate.length) return baseTimeSlotOptions;
     return baseTimeSlotOptions.filter((slot) => !blockedForDate.includes(slot.value));
   }, [baseTimeSlotOptions, blockedSlots, selectedDateIso]);
+
+  const filteredRescheduleTimeSlotOptions = useMemo(() => {
+    if (!selectedRescheduleDateIso) return baseTimeSlotOptions;
+    const blockedForDate = blockedSlots[selectedRescheduleDateIso] || [];
+    if (!blockedForDate.length) return baseTimeSlotOptions;
+    return baseTimeSlotOptions.filter((slot) => !blockedForDate.includes(slot.value));
+  }, [baseTimeSlotOptions, blockedSlots, selectedRescheduleDateIso]);
+
+  const selectedRescheduleTime =
+    rescheduleTimeIndex !== null
+      ? filteredRescheduleTimeSlotOptions[rescheduleTimeIndex] || null
+      : null;
+
+  const proposedRescheduleLabel =
+    selectedRescheduleDate && selectedRescheduleTime
+      ? `${selectedRescheduleDate.day}، ${selectedRescheduleDate.displayDate} — ${selectedRescheduleTime.label}`
+      : "لم يتم اختيار موعد جديد بعد";
 
   const normalizePhone = (raw) => {
     if (!raw) return "";
@@ -231,60 +308,20 @@ export default function ProviderAppointmentsScreen() {
     Linking.openURL(url).catch(() => Alert.alert("خطأ", "تعذّر إجراء الاتصال"));
   };
 
-  const chatConsentKey = (appointment) => {
-    const id = appointment?.user?._id || appointment?._id;
-    return id ? `CHAT_CONSENT_${id}` : null;
-  };
-
-  const ensureChatConsent = async (appointment) => {
-    const key = chatConsentKey(appointment);
-    if (!key) return true;
-    try {
-      const stored = await AsyncStorage.getItem(key);
-      if (stored === "1") return true;
-    } catch (err) {
-      // ignore and fall through to prompt
-    }
-
-    return new Promise((resolve) => {
-      Alert.alert(
-        "السماح بالمراسلة",
-        "هل تريد السماح لهذا المراجع بإرسال رسائل؟",
-        [
-          { text: "رفض", style: "cancel", onPress: () => resolve(false) },
-          {
-            text: "سماح",
-            onPress: async () => {
-              try {
-                await AsyncStorage.setItem(key, "1");
-              } catch (_) {}
-              resolve(true);
-            },
-          },
-        ]
-      );
-    });
-  };
-
-  const openChat = async (appointment) => {
-    if (!appointment) return;
-    const allowed = await ensureChatConsent(appointment);
-    if (!allowed) return;
-    setSelectedAppointment(null);
-    navigation.navigate("Chat", {
-      patientName: appointment.user?.name || "المراجع",
-      appointmentId: appointment._id,
-      appointmentDate: appointment.appointmentDate,
-      appointmentTime: appointment.appointmentTime,
-      contactNumber: appointment.user?.phone,
-      avatarUrl: appointment.user?.avatarUrl,
-    });
-  };
-
   const visibleAppointments = useMemo(() => {
+    const activeAppointments = appointments.filter(
+      (appointment) => appointment?.status !== "completed"
+    );
+    const todayIso = toLocalIso(new Date());
     const q = String(searchQuery || "").trim().toLowerCase();
-    if (!q) return appointments;
-    return appointments.filter((appointment) => {
+    return activeAppointments.filter((appointment) => {
+      if (todayOnly) {
+        const appointmentIso = toComparableDateIso(appointment);
+        if (appointmentIso !== todayIso) return false;
+      }
+
+      if (!q) return true;
+
       const patientName = String(appointment?.user?.name || "").toLowerCase();
       const patientPhone = String(appointment?.user?.phone || "").toLowerCase();
       const bookingNo = String(
@@ -296,7 +333,32 @@ export default function ProviderAppointmentsScreen() {
       ).toLowerCase();
       return patientName.includes(q) || patientPhone.includes(q) || bookingNo.includes(q);
     });
-  }, [appointments, searchQuery]);
+  }, [appointments, searchQuery, todayOnly]);
+
+  const activeAppointments = useMemo(
+    () => appointments.filter((appointment) => appointment?.status !== "completed"),
+    [appointments]
+  );
+
+  const todayAppointments = useMemo(() => {
+    const todayIso = toLocalIso(new Date());
+    return activeAppointments.filter((appointment) => toComparableDateIso(appointment) === todayIso);
+  }, [activeAppointments]);
+
+  const todayPendingAppointments = useMemo(
+    () => todayAppointments.filter((appointment) => appointment.status === "pending"),
+    [todayAppointments]
+  );
+
+  const todayConfirmedAppointments = useMemo(
+    () => todayAppointments.filter((appointment) => appointment.status === "confirmed"),
+    [todayAppointments]
+  );
+
+  const showBulkCompleteAllButton =
+    todayAppointments.length > 0 &&
+    todayPendingAppointments.length === 0 &&
+    todayConfirmedAppointments.length > 0;
 
   const updateManualForm = (field, value) =>
     setManualForm((prev) => ({ ...prev, [field]: value }));
@@ -316,6 +378,18 @@ export default function ProviderAppointmentsScreen() {
     });
   };
 
+  const redirectToLogin = useCallback(() => {
+    (async () => {
+      try {
+        await logout();
+      } catch (_err) {
+        // continue to login even if logout request fails
+      } finally {
+        navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+      }
+    })();
+  }, [navigation]);
+
   const loadDoctorData = useCallback(async () => {
     try {
       const data = await fetchDoctorDashboard();
@@ -326,8 +400,18 @@ export default function ProviderAppointmentsScreen() {
       }
     } catch (err) {
       console.log("Doctor dashboard error:", err);
+      if (err?.status === 401) {
+        Alert.alert(
+          "انتهت الجلسة",
+          "يرجى تسجيل الدخول مرة أخرى.",
+          [{ text: "تسجيل الدخول", onPress: redirectToLogin }]
+        );
+      } else if (err?.status === 403) {
+        Alert.alert("تنبيه", err?.payload?.message || err?.message || "لا تملك صلاحية الوصول.");
+      }
+      // Network / timeout errors: user sees the appointments error from refreshAppointments
     }
-  }, []);
+  }, [navigation, redirectToLogin]);
 
   const loadBlockedSlots = useCallback(() => {
     let active = true;
@@ -370,10 +454,8 @@ export default function ProviderAppointmentsScreen() {
         ...manualForm,
         status: "confirmed",
       });
-      if (appointment?.appointmentDateIso && appointment?.appointmentTimeValue) {
-        markSlotBlocked(appointment.appointmentDateIso, appointment.appointmentTimeValue);
-      }
       setAppointments((prev) => [appointment, ...prev]);
+      loadBlockedSlots();
       Alert.alert(
         "تم الحجز",
         tempPassword
@@ -398,33 +480,127 @@ export default function ProviderAppointmentsScreen() {
     fetchingRef.current = true;
     if (!silent) setLoading(true);
     try {
-      const data = await fetchDoctorAppointments();
-      setAppointments(data.appointments || []);
+      const [data, centersPayload] = await Promise.all([
+        fetchDoctorAppointments(),
+        fetchMyDoctorCenters().catch(() => ({ centers: [] })),
+      ]);
+
+      const regularAppointments = Array.isArray(data?.appointments)
+        ? data.appointments.map((item) => ({ ...item, bookingSource: "appointment" }))
+        : [];
+
+      const assignedCenters = Array.isArray(centersPayload?.centers)
+        ? centersPayload.centers
+        : [];
+
+      let centerAppointments = [];
+      if (assignedCenters.length) {
+        const responses = await Promise.all(
+          assignedCenters.map(async (center) => {
+            const centerId = String(center?.medicalCenterId || "").trim();
+            if (!centerId) return [];
+            try {
+              const result = await fetchDoctorCenterBookings(centerId);
+              const bookings = Array.isArray(result?.bookings) ? result.bookings : [];
+              return bookings.map((booking) => ({
+                ...booking,
+                bookingSource: "center",
+                medicalCenterId: centerId,
+                centerName: booking?.centerName || center?.name || "",
+              }));
+            } catch (centerErr) {
+              console.log("Center bookings fetch error:", centerErr);
+              return [];
+            }
+          })
+        );
+        centerAppointments = responses.flat();
+      }
+
+      setAppointments([...regularAppointments, ...centerAppointments]);
     } catch (err) {
       console.log("Provider appointments error:", err);
-      Alert.alert("خطأ", err.message || "تعذّر تحميل الحجوزات");
+      if (err?.status === 401) {
+        Alert.alert(
+          "انتهت الجلسة",
+          "يرجى تسجيل الدخول مرة أخرى.",
+          [{ text: "تسجيل الدخول", onPress: redirectToLogin }]
+        );
+      } else if (err?.status === 403) {
+        Alert.alert("تنبيه", err?.payload?.message || err?.message || "لا تملك صلاحية الوصول.");
+      } else {
+        Alert.alert("خطأ", err.message || "تعذّر تحميل الحجوزات");
+      }
     } finally {
       fetchingRef.current = false;
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [navigation, redirectToLogin]);
 
   useFocusEffect(
     useCallback(() => {
       refreshAppointments();
       loadDoctorData();
       const interval = setInterval(() => refreshAppointments(true), 15000);
-      return () => clearInterval(interval);
+
+      // Safety net: if loading is still true after 35s, force it off so the
+      // user is never stuck on a blank spinner indefinitely.
+      const safetyTimer = setTimeout(() => {
+        setLoading((prev) => {
+          if (prev) {
+            console.warn("[ProviderAppointments] Safety timeout: forcing loading=false");
+            return false;
+          }
+          return prev;
+        });
+      }, 35000);
+
+      return () => {
+        clearInterval(interval);
+        clearTimeout(safetyTimer);
+      };
     }, [refreshAppointments, loadDoctorData])
   );
 
   useEffect(() => loadBlockedSlots(), [loadBlockedSlots]);
 
   useEffect(() => {
-    if (permission === null) {
-      requestPermission();
+    const shouldOpenManual = Boolean(route?.params?.openManualBooking);
+    if (!shouldOpenManual) return;
+
+    const requestId = String(route?.params?.requestId || "").trim();
+    if (requestId && consumedManualRequestRef.current === requestId) {
+      return;
     }
-  }, [permission, requestPermission]);
+
+    const patientId = String(route?.params?.patientId || "").trim();
+    const patientName = String(route?.params?.patientName || "").trim();
+    const patientPhone = String(route?.params?.patientPhone || "").trim();
+
+    setManualForm((prev) => ({
+      ...prev,
+      patientId,
+      patientName,
+      patientPhone,
+      notes: "",
+    }));
+    setManualModalVisible(true);
+
+    if (requestId) {
+      consumedManualRequestRef.current = requestId;
+    }
+
+    navigation.setParams?.({
+      openManualBooking: undefined,
+      requestId: undefined,
+      patientId: undefined,
+      patientName: undefined,
+      patientPhone: undefined,
+    });
+  }, [navigation, route?.params]);
+
+  // Camera permission is requested lazily when user opens the QR scanner
+  // (no auto-request on mount to avoid render loops on some devices)
 
   useEffect(() => {
     if (!manualModalVisible) return;
@@ -454,11 +630,73 @@ export default function ProviderAppointmentsScreen() {
     }
   }, [manualModalVisible, selectedDateIndex, filteredTimeSlotOptions, selectedTimeIndex]);
 
+  useEffect(() => {
+    if (!rescheduleModalVisible) return;
+    if (rescheduleDateIndex === null && availableDates.length) {
+      const currentIso = rescheduleTarget?.appointmentDateIso;
+      const foundIndex =
+        typeof currentIso === "string"
+          ? availableDates.findIndex((date) => date.iso === currentIso)
+          : -1;
+      setRescheduleDateIndex(foundIndex >= 0 ? foundIndex : 0);
+      setRescheduleTimeIndex(null);
+    }
+  }, [rescheduleModalVisible, availableDates, rescheduleDateIndex, rescheduleTarget]);
+
+  useEffect(() => {
+    if (!rescheduleModalVisible) return;
+    if (rescheduleDateIndex === null) return;
+    if (!filteredRescheduleTimeSlotOptions.length) {
+      setRescheduleTimeIndex(null);
+      return;
+    }
+    if (
+      rescheduleTimeIndex === null ||
+      rescheduleTimeIndex >= filteredRescheduleTimeSlotOptions.length
+    ) {
+      const currentTime = rescheduleTarget?.appointmentTimeValue;
+      const foundIndex =
+        typeof currentTime === "string"
+          ? filteredRescheduleTimeSlotOptions.findIndex((slot) => slot.value === currentTime)
+          : -1;
+      setRescheduleTimeIndex(foundIndex >= 0 ? foundIndex : 0);
+    }
+  }, [
+    rescheduleModalVisible,
+    rescheduleDateIndex,
+    filteredRescheduleTimeSlotOptions,
+    rescheduleTimeIndex,
+    rescheduleTarget,
+  ]);
+
   const handleAccept = async (id) => {
     if (actionLoading[id]) return;
     setActionLoading((prev) => ({ ...prev, [id]: true }));
     try {
-      const { appointment } = await acceptDoctorAppointment(id);
+      const target = appointments.find((item) => item._id === id);
+      const isCenterBooking = target?.bookingSource === "center";
+      let appointment;
+
+      if (isCenterBooking) {
+        const centerId = String(target?.medicalCenterId || "").trim();
+        if (!centerId) {
+          throw new Error("تعذّر تحديد المركز لهذا الحجز");
+        }
+        const { booking } = await acceptDoctorCenterBooking(centerId, id);
+        appointment = {
+          ...(booking || target),
+          bookingSource: "center",
+          medicalCenterId: centerId,
+          centerName: target?.centerName || booking?.centerName || "",
+        };
+      } else {
+        const response = await acceptDoctorAppointment(id);
+        appointment = {
+          ...(response?.appointment || target),
+          bookingSource: "appointment",
+        };
+      }
+
       setAppointments((prev) =>
         prev.map((item) => (item._id === id ? appointment : item))
       );
@@ -478,7 +716,30 @@ export default function ProviderAppointmentsScreen() {
     if (actionLoading[id]) return;
     setActionLoading((prev) => ({ ...prev, [id]: true }));
     try {
-      const { appointment } = await cancelDoctorAppointment(id);
+      const target = appointments.find((item) => item._id === id);
+      const isCenterBooking = target?.bookingSource === "center";
+      let appointment;
+
+      if (isCenterBooking) {
+        const centerId = String(target?.medicalCenterId || "").trim();
+        if (!centerId) {
+          throw new Error("تعذّر تحديد المركز لهذا الحجز");
+        }
+        const { booking } = await cancelDoctorCenterBooking(centerId, id);
+        appointment = {
+          ...(booking || target),
+          bookingSource: "center",
+          medicalCenterId: centerId,
+          centerName: target?.centerName || booking?.centerName || "",
+        };
+      } else {
+        const response = await cancelDoctorAppointment(id);
+        appointment = {
+          ...(response?.appointment || target),
+          bookingSource: "appointment",
+        };
+      }
+
       setAppointments((prev) =>
         prev.map((item) => (item._id === id ? appointment : item))
       );
@@ -495,17 +756,23 @@ export default function ProviderAppointmentsScreen() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleComplete = async (id) => {
     if (actionLoading[id]) return;
+    const target = appointments.find((item) => item._id === id);
+    if (target?.bookingSource === "center") {
+      Alert.alert("تنبيه", "إكمال حجز المركز غير مدعوم من هذه الشاشة حالياً.");
+      return;
+    }
     setActionLoading((prev) => ({ ...prev, [id]: true }));
     try {
-      await deleteDoctorAppointment(id);
-      setAppointments((prev) => prev.filter((item) => item._id !== id));
-      setSelectedAppointment((prev) => (prev?._id === id ? null : prev));
-      Alert.alert("تم", "تم حذف الحجز من النظام.");
+      const { appointment } = await completeDoctorAppointment(id);
+      setAppointments((prev) =>
+        prev.map((item) => (item._id === id ? appointment : item))
+      );
+      Alert.alert("تم الإكمال", "تم إكمال الموعد وسيتم الاحتفاظ به في الأرشيف.");
     } catch (err) {
-      Alert.alert("خطأ", err.message || "تعذّر حذف الموعد");
-      console.log("Delete error:", err);
+      Alert.alert("خطأ", err.message || "تعذّر إكمال الموعد");
+      console.log("Complete error:", err);
     } finally {
       setActionLoading((prev) => {
         const next = { ...prev };
@@ -515,20 +782,250 @@ export default function ProviderAppointmentsScreen() {
     }
   };
 
-  const confirmDelete = (appointment) => {
-    if (!appointment) return;
+  // ─── Assign Employee handlers ──────────────────────────────
+  const openAssignModal = async (appointment) => {
+    setAssignTarget(appointment);
+    setAssignModalVisible(true);
+    setEmployeeListLoading(true);
+    try {
+      const res = await fetchSecretaries();
+      const list = Array.isArray(res?.secretaries) ? res.secretaries : [];
+      setEmployeeList(list.filter((e) => e.isActive !== false));
+    } catch (_e) {
+      setEmployeeList([]);
+      Alert.alert("خطأ", "تعذّر تحميل قائمة الموظفين");
+    } finally {
+      setEmployeeListLoading(false);
+    }
+  };
+
+  const handleAssignEmployee = async (secretaryId) => {
+    if (!assignTarget || assignLoading) return;
+    setAssignLoading(true);
+    try {
+      const { appointment } = await assignEmployeeToAppointment(assignTarget._id, secretaryId);
+      setAppointments((prev) =>
+        prev.map((item) => (item._id === assignTarget._id ? { ...item, ...appointment } : item))
+      );
+      Alert.alert("نجاح", "تم تعيين الموظف بنجاح");
+      setAssignModalVisible(false);
+      setAssignTarget(null);
+    } catch (err) {
+      Alert.alert("خطأ", err?.message || "تعذّر تعيين الموظف");
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  const handleAcceptAllToday = () => {
+    if (bulkActionLoading.acceptAll) return;
+    const targets = todayPendingAppointments.filter((appointment) => !actionLoading[appointment._id]);
+    if (!targets.length) {
+      Alert.alert("تنبيه", "لا توجد حجوزات معلّقة لليوم.");
+      return;
+    }
+
     Alert.alert(
-      "تأكيد الحذف",
-      "سيتم إزالة الحجز نهائيًا، هل تريد الاستمرار؟",
+      "قبول جميع الحجوزات",
+      `سيتم قبول ${targets.length} من حجوزات اليوم. هل تريد المتابعة؟`,
       [
         { text: "إلغاء", style: "cancel" },
         {
-          text: "حذف",
-          style: "destructive",
-          onPress: () => handleDelete(appointment._id),
+          text: "متابعة",
+          onPress: async () => {
+            setBulkActionLoading((prev) => ({ ...prev, acceptAll: true }));
+            const updatedById = {};
+            let success = 0;
+            let failed = 0;
+
+            for (const appointment of targets) {
+              const id = appointment._id;
+              const isCenterBooking = appointment?.bookingSource === "center";
+              setActionLoading((prev) => ({ ...prev, [id]: true }));
+              try {
+                let updated;
+                if (isCenterBooking) {
+                  const centerId = String(appointment?.medicalCenterId || "").trim();
+                  if (!centerId) {
+                    throw new Error("تعذّر تحديد المركز لهذا الحجز");
+                  }
+                  const { booking } = await acceptDoctorCenterBooking(centerId, id);
+                  updated = {
+                    ...(booking || appointment),
+                    bookingSource: "center",
+                    medicalCenterId: centerId,
+                    centerName: appointment?.centerName || booking?.centerName || "",
+                  };
+                } else {
+                  const response = await acceptDoctorAppointment(id);
+                  updated = {
+                    ...(response?.appointment || appointment),
+                    bookingSource: "appointment",
+                  };
+                }
+                updatedById[id] = updated;
+                success += 1;
+              } catch (err) {
+                failed += 1;
+              } finally {
+                setActionLoading((prev) => {
+                  const next = { ...prev };
+                  delete next[id];
+                  return next;
+                });
+              }
+            }
+
+            if (success > 0) {
+              setAppointments((prev) =>
+                prev.map((item) => (updatedById[item._id] ? updatedById[item._id] : item))
+              );
+              if (failed === 0) {
+                Alert.alert("تم", "تم إكمال جميع حجوزات اليوم وسيتم الاحتفاظ بها في الأرشيف.");
+              }
+            }
+
+            if (failed > 0) {
+              Alert.alert("تنبيه", `تم قبول ${success} حجز وتعذّر ${failed} حجز.`);
+            }
+
+            setBulkActionLoading((prev) => ({ ...prev, acceptAll: false }));
+          },
         },
       ]
     );
+  };
+
+  const handleCompleteAllToday = () => {
+    if (bulkActionLoading.completeAll) return;
+    const targets = todayConfirmedAppointments.filter(
+      (appointment) =>
+        !actionLoading[appointment._id] && appointment?.bookingSource !== "center"
+    );
+    if (!targets.length) {
+      Alert.alert("تنبيه", "لا توجد حجوزات مؤكدة لليوم.");
+      return;
+    }
+
+    Alert.alert(
+      "تأكيد جميع الحجوزات",
+      `سيتم إكمال ${targets.length} من حجوزات اليوم المؤكدة. هل تريد المتابعة؟`,
+      [
+        { text: "إلغاء", style: "cancel" },
+        {
+          text: "متابعة",
+          onPress: async () => {
+            setBulkActionLoading((prev) => ({ ...prev, completeAll: true }));
+            const updatedById = {};
+            let success = 0;
+            let failed = 0;
+
+            for (const appointment of targets) {
+              const id = appointment._id;
+              setActionLoading((prev) => ({ ...prev, [id]: true }));
+              try {
+                const { appointment: updated } = await completeDoctorAppointment(id);
+                updatedById[id] = updated;
+                success += 1;
+              } catch (err) {
+                failed += 1;
+              } finally {
+                setActionLoading((prev) => {
+                  const next = { ...prev };
+                  delete next[id];
+                  return next;
+                });
+              }
+            }
+
+            if (success > 0) {
+              setAppointments((prev) =>
+                prev.map((item) => (updatedById[item._id] ? updatedById[item._id] : item))
+              );
+            }
+
+            if (failed > 0) {
+              Alert.alert("تنبيه", `تم إكمال ${success} حجز وتعذّر ${failed} حجز.`);
+            }
+
+            setBulkActionLoading((prev) => ({ ...prev, completeAll: false }));
+          },
+        },
+      ]
+    );
+  };
+
+  const openRescheduleModal = (appointment) => {
+    if (!appointment?._id) return;
+    if (appointment?.bookingSource === "center") {
+      Alert.alert("تنبيه", "تأجيل حجز المركز غير مدعوم من هذه الشاشة حالياً.");
+      return;
+    }
+    setRescheduleTarget(appointment);
+    setRescheduleDateIndex(null);
+    setRescheduleTimeIndex(null);
+    setRescheduleModalVisible(true);
+  };
+
+  const closeRescheduleModal = () => {
+    setRescheduleModalVisible(false);
+    setRescheduleTarget(null);
+    setRescheduleDateIndex(null);
+    setRescheduleTimeIndex(null);
+  };
+
+  const handleReschedule = async () => {
+    if (!rescheduleTarget?._id || rescheduleLoading) return;
+    const targetId = rescheduleTarget._id;
+    if (rescheduleDateIndex === null || rescheduleTimeIndex === null) {
+      Alert.alert("تنبيه", "يرجى اختيار اليوم والوقت الجديدين");
+      return;
+    }
+
+    const dateObj = availableDates[rescheduleDateIndex];
+    const timeObj = filteredRescheduleTimeSlotOptions[rescheduleTimeIndex];
+    if (!dateObj || !timeObj) {
+      Alert.alert("تنبيه", "تعذّر قراءة الموعد الجديد");
+      return;
+    }
+
+    const payload = {
+      appointmentDate: `${dateObj.day}، ${dateObj.displayDate}`,
+      appointmentDateIso: dateObj.iso,
+      appointmentTime: timeObj.label,
+      appointmentTimeValue: timeObj.value,
+    };
+
+    setRescheduleLoading(true);
+    setActionLoading((prev) => ({ ...prev, [targetId]: true }));
+    try {
+      const { appointment } = await rescheduleDoctorAppointment(targetId, payload);
+      if (appointment?.appointmentDateIso && appointment?.appointmentTimeValue) {
+        markSlotBlocked(appointment.appointmentDateIso, appointment.appointmentTimeValue);
+      }
+      setAppointments((prev) =>
+        prev.map((item) => (item._id === targetId ? appointment : item))
+      );
+      Alert.alert("تم", "تم تأجيل الموعد وإشعار المريض بالموعد الجديد.");
+      setRescheduleModalVisible(false);
+      setRescheduleTarget(null);
+      setRescheduleDateIndex(null);
+      setRescheduleTimeIndex(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        Alert.alert("موعد محجوز", err.message || "اختر وقتاً آخر");
+      } else {
+        Alert.alert("خطأ", err.message || "تعذّر تأجيل الموعد");
+      }
+      console.log("Reschedule error:", err);
+    } finally {
+      setRescheduleLoading(false);
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+    }
   };
 
   const openBlockOptions = async (appointment) => {
@@ -537,7 +1034,7 @@ export default function ProviderAppointmentsScreen() {
       return;
     }
     const patientId = appointment.user._id;
-    let current = { blockChat: false, blockBooking: false };
+    let current = { blockBooking: false };
     try {
       const res = await getBlock(patientId);
       if (res?.block) current = res.block;
@@ -548,8 +1045,6 @@ export default function ProviderAppointmentsScreen() {
     const applyBlock = async (changes) => {
       try {
         const next = {
-          blockChat:
-            changes.blockChat !== undefined ? changes.blockChat : current.blockChat,
           blockBooking:
             changes.blockBooking !== undefined
               ? changes.blockBooking
@@ -567,10 +1062,6 @@ export default function ProviderAppointmentsScreen() {
       "إعدادات الحظر",
       "اختر نوع الحظر للمراجع",
       [
-        {
-          text: current.blockChat ? "رفع حظر المراسلة" : "حظر المراسلة",
-          onPress: () => applyBlock({ blockChat: !current.blockChat }),
-        },
         {
           text: current.blockBooking ? "رفع حظر الحجز" : "حظر الحجز",
           onPress: () => applyBlock({ blockBooking: !current.blockBooking }),
@@ -591,6 +1082,7 @@ export default function ProviderAppointmentsScreen() {
 
     return appointments.reduce(
       (acc, appointment) => {
+        if (appointment?.status === "completed") return acc;
         const createdAt = new Date(appointment.createdAt);
         if (isNaN(createdAt.getTime())) return acc;
         if (createdAt >= weekStart && createdAt < weekEnd) {
@@ -604,6 +1096,12 @@ export default function ProviderAppointmentsScreen() {
       { total: 0, pending: 0, confirmed: 0, cancelled: 0 }
     );
   }, [appointments]);
+
+  const todayAppointmentsCount = useMemo(() => {
+    const todayIso = toLocalIso(new Date());
+    return activeAppointments.filter((appointment) => toComparableDateIso(appointment) === todayIso)
+      .length;
+  }, [activeAppointments]);
 
   useEffect(() => {
     if (!recentCancelled) return;
@@ -716,27 +1214,85 @@ export default function ProviderAppointmentsScreen() {
 
       <View style={styles.scanBar}>
         <TouchableOpacity style={styles.scanButton} onPress={openScanner}>
-          <Feather name="camera" size={18} color="#0EA5E9" />
-          <Text style={styles.scanButtonText}>مسح باركود المراجع</Text>
+          <Feather name="camera" size={18} color={colors.surface} />
+          <Text style={styles.scanButtonText}>مسح الباركود</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.manualButton}
           onPress={() => setManualModalVisible(true)}
         >
-          <Feather name="plus" size={18} color="#fff" />
+          <Feather name="plus" size={18} color={colors.text} />
           <Text style={styles.manualButtonText}>حجز يدوي</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.searchBar}>
-        <Feather name="search" size={18} color="#6B7280" />
+        <Feather name="search" size={18} color={colors.textMuted} />
         <TextInput
           style={styles.searchInput}
           placeholder="ابحث عن مريض (اسم/هاتف/رقم الحجز)"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={colors.placeholder}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+      </View>
+
+      <View style={styles.filterBar}>
+        <TouchableOpacity
+          style={[
+            styles.todayFilterButton,
+            todayOnly && styles.todayFilterButtonActive,
+          ]}
+          onPress={() => setTodayOnly((prev) => !prev)}
+          activeOpacity={0.85}
+        >
+          <Feather
+            name="calendar"
+            size={16}
+            color={todayOnly ? colors.background : colors.primary}
+          />
+          <Text
+            style={[
+              styles.todayFilterText,
+              todayOnly && styles.todayFilterTextActive,
+            ]}
+          >
+            حجوزات اليوم
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.bulkActionButton,
+            styles.bulkAcceptButton,
+            (bulkActionLoading.acceptAll || todayPendingAppointments.length === 0) &&
+              styles.bulkActionButtonDisabled,
+          ]}
+          onPress={handleAcceptAllToday}
+          disabled={bulkActionLoading.acceptAll || todayPendingAppointments.length === 0}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.bulkActionText}>
+            {bulkActionLoading.acceptAll ? "جارٍ القبول..." : "قبول جميع الحجوزات"}
+          </Text>
+        </TouchableOpacity>
+
+        {showBulkCompleteAllButton ? (
+          <TouchableOpacity
+            style={[
+              styles.bulkActionButton,
+              styles.bulkCompleteButton,
+              bulkActionLoading.completeAll && styles.bulkActionButtonDisabled,
+            ]}
+            onPress={handleCompleteAllToday}
+            disabled={bulkActionLoading.completeAll}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.bulkActionText}>
+              {bulkActionLoading.completeAll ? "جارٍ التأكيد..." : "تأكيد جميع الحجوزات"}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -755,45 +1311,63 @@ export default function ProviderAppointmentsScreen() {
         )}
 
         <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>This Week</Text>
+          <View style={styles.statsHeaderRow}>
+            <Text style={styles.statsTitle}>إحصائية سريعة</Text>
+            <Text style={styles.statsTodayText}>اليوم: {todayAppointmentsCount}</Text>
+          </View>
           <View style={styles.statsRow}>
-            <View>
-              <Text style={styles.statsLabel}>إجمالي الطلبات</Text>
+            <View style={styles.statsItem}>
+              <Text style={styles.statsLabel}>الكل</Text>
               <Text style={styles.statsValue}>{weekStats.total}</Text>
             </View>
-            <View>
-              <Text style={styles.statsLabel}>قيد الانتظار</Text>
+            <View style={styles.statsItem}>
+              <Text style={styles.statsLabel}>انتظار</Text>
               <Text style={styles.statsValue}>{weekStats.pending}</Text>
             </View>
-            <View>
-              <Text style={styles.statsLabel}>مؤكدة</Text>
+            <View style={styles.statsItem}>
+              <Text style={styles.statsLabel}>مؤكد</Text>
               <Text style={styles.statsValue}>{weekStats.confirmed}</Text>
             </View>
-            <View>
-              <Text style={styles.statsLabel}>مرفوضة</Text>
+            <View style={styles.statsItem}>
+              <Text style={styles.statsLabel}>ملغي</Text>
               <Text style={styles.statsValue}>{weekStats.cancelled}</Text>
             </View>
           </View>
         </View>
 
+        <View style={styles.listHeader}>
+          <View style={styles.listHeaderTextWrap}>
+            <Text style={styles.listHeaderTitle}>الحجوزات</Text>
+            <Text style={styles.listHeaderSubtitle}>
+              المعروض {visibleAppointments.length} من أصل {activeAppointments.length}
+            </Text>
+          </View>
+          <View style={styles.listHeaderBadges}>
+            {todayOnly ? <Text style={styles.listHeaderTodayBadge}>اليوم فقط</Text> : null}
+            <Text style={styles.listHeaderCount}>{visibleAppointments.length}</Text>
+          </View>
+        </View>
+
         {loading && (
-          <ActivityIndicator size="large" color="#0EA5E9" style={styles.loader} />
+          <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
         )}
 
-        {!loading && appointments.length === 0 && (
+        {!loading && activeAppointments.length === 0 && (
           <Text style={styles.emptyText}>لا توجد حجوزات جديدة.</Text>
         )}
 
-        {!loading && appointments.length > 0 && visibleAppointments.length === 0 && (
+        {!loading && activeAppointments.length > 0 && visibleAppointments.length === 0 && (
           <Text style={styles.emptyText}>لا توجد نتائج مطابقة.</Text>
         )}
 
         {visibleAppointments.map((appointment) => {
+          const isCenterBooking = appointment?.bookingSource === "center";
           const statusColor = {
-            confirmed: "#16A34A",
-            pending: "#D97706",
-            cancelled: "#B91C1C",
-          }[appointment.status] || "#4B5563";
+            confirmed: colors.success,
+            pending: colors.warning,
+            completed: colors.primary,
+            cancelled: colors.danger,
+          }[appointment.status] || colors.textMuted;
           const canCancel = ["pending", "confirmed"].includes(appointment.status);
           return (
             <TouchableOpacity
@@ -814,28 +1388,32 @@ export default function ProviderAppointmentsScreen() {
                 </Text>
               </View>
 
-              <View style={styles.bookingRow}>
-                <Text style={styles.bookingLabel}>رقم الحجز</Text>
-                <Text style={styles.bookingValue}>
-                  {appointment.doctorQueueNumber ?? appointment.doctorIndex ?? appointment.bookingNumber ?? "-"}
-                </Text>
+              <View style={styles.quickMetaRow}>
+                <View style={styles.quickMetaBadge}>
+                  <Text style={styles.quickMetaLabel}>رقم الحجز</Text>
+                  <Text style={styles.quickMetaValue}>
+                    {appointment.doctorQueueNumber ?? appointment.doctorIndex ?? appointment.bookingNumber ?? "-"}
+                  </Text>
+                </View>
+                <View style={styles.quickMetaBadge}>
+                  <Text style={styles.quickMetaLabel}>الخدمة</Text>
+                  <Text style={styles.quickMetaValue} numberOfLines={1}>
+                    {appointment.service?.name || "-"}
+                  </Text>
+                </View>
               </View>
 
-              <View style={styles.bookingRow}>
-                <Text style={styles.bookingLabel}>الخدمة</Text>
-                <Text style={styles.bookingValue}>
-                  {appointment.service?.name || "-"}
-                </Text>
+              <View style={styles.timeRow}>
+                <View style={styles.timeItem}>
+                  <Feather name="calendar" size={14} color={colors.primary} />
+                  <Text style={styles.timeText}>{appointment.appointmentDate || "-"}</Text>
+                </View>
+                <View style={styles.timeItem}>
+                  <Feather name="clock" size={14} color={colors.primary} />
+                  <Text style={styles.timeText}>{appointment.appointmentTime || "-"}</Text>
+                </View>
               </View>
 
-              <View style={styles.infoRow}>
-                <Feather name="calendar" size={16} color="#0EA5E9" />
-                <Text style={styles.infoText}>{appointment.appointmentDate}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Feather name="clock" size={16} color="#0EA5E9" />
-                <Text style={styles.infoText}>{appointment.appointmentTime}</Text>
-              </View>
               {appointment.notes ? (
                 <View style={styles.notesRow}>
                   <Text style={styles.notesLabel}>ملاحظات</Text>
@@ -843,7 +1421,37 @@ export default function ProviderAppointmentsScreen() {
                 </View>
               ) : null}
 
-              {/* QR Code Toggle and Display Removed */}
+              {/* عرض اسم السكرتير اللي نفّذ الإجراء */}
+              {appointment.actionBySecretary?.secretaryName ? (
+                <View style={[styles.notesRow, { backgroundColor: colors.primary + "08" }]}>
+                  <View style={{ flexDirection: "row-reverse", alignItems: "center", gap: 4 }}>
+                    <Feather name="user-check" size={13} color={colors.primary} />
+                    <Text style={[styles.notesLabel, { color: colors.primary }]}>
+                      {appointment.actionBySecretary.action === "accepted" ? "قُبل بواسطة" :
+                       appointment.actionBySecretary.action === "created" ? "أُنشئ بواسطة" :
+                       appointment.actionBySecretary.action === "completed" ? "أُكمل بواسطة" :
+                       appointment.actionBySecretary.action === "rescheduled" ? "أُعيد جدولته بواسطة" :
+                       "بواسطة"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.notesText, { color: colors.primary, fontWeight: "600" }]}>
+                    {appointment.actionBySecretary.secretaryName}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* عرض الموظف المُعيّن للعمل على الحالة */}
+              {appointment.assignedEmployee?.secretaryName ? (
+                <View style={[styles.notesRow, { backgroundColor: "#4CAF5010" }]}>
+                  <View style={{ flexDirection: "row-reverse", alignItems: "center", gap: 4 }}>
+                    <Feather name="user" size={13} color="#4CAF50" />
+                    <Text style={[styles.notesLabel, { color: "#4CAF50" }]}>العامل على الحالة</Text>
+                  </View>
+                  <Text style={[styles.notesText, { color: "#4CAF50", fontWeight: "600" }]}>
+                    {appointment.assignedEmployee.secretaryName}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.actionsRow}>
                 {appointment.status === "pending" && (
@@ -855,6 +1463,15 @@ export default function ProviderAppointmentsScreen() {
                     <Text style={styles.actionText}>قبول</Text>
                   </TouchableOpacity>
                 )}
+                {appointment.status === "confirmed" && !isCenterBooking && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.completeButton]}
+                    disabled={Boolean(actionLoading[appointment._id])}
+                    onPress={() => handleComplete(appointment._id)}
+                  >
+                    <Text style={styles.actionText}>تم الإكمال</Text>
+                  </TouchableOpacity>
+                )}
                 {canCancel && (
                   <TouchableOpacity
                     style={[styles.actionButton, styles.cancelButton]}
@@ -864,13 +1481,25 @@ export default function ProviderAppointmentsScreen() {
                     <Text style={styles.actionText}>إلغاء</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  disabled={Boolean(actionLoading[appointment._id])}
-                  onPress={() => confirmDelete(appointment)}
-                >
-                  <Text style={[styles.actionText, styles.deleteButtonText]}>حذف</Text>
-                </TouchableOpacity>
+                {!isCenterBooking && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.rescheduleButton]}
+                    disabled={Boolean(actionLoading[appointment._id])}
+                    onPress={() => openRescheduleModal(appointment)}
+                  >
+                    <Text style={styles.actionText}>تأجيل الموعد</Text>
+                  </TouchableOpacity>
+                )}
+                {/* تعيين موظف للعمل على الحالة - فقط للمؤكدة أو المكتملة */}
+                {(appointment.status === "confirmed" || appointment.status === "completed") && !isCenterBooking && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: "#4CAF50" }]}
+                    onPress={() => openAssignModal(appointment)}
+                  >
+                    <Feather name="user-plus" size={14} color="#fff" style={{ marginLeft: 4 }} />
+                    <Text style={styles.actionText}>تعيين موظف</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -899,7 +1528,7 @@ export default function ProviderAppointmentsScreen() {
                     setManualModalVisible(false);
                   }}
                 >
-                  <Feather name="x" size={20} color="#111827" />
+                  <Feather name="x" size={20} color={colors.text} />
                 </TouchableOpacity>
               </View>
 
@@ -1003,7 +1632,7 @@ export default function ProviderAppointmentsScreen() {
                 disabled={manualLoading}
               >
                 {manualLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.surface} />
                 ) : (
                   <Text style={styles.primaryButtonText}>تأكيد الحجز</Text>
                 )}
@@ -1017,6 +1646,154 @@ export default function ProviderAppointmentsScreen() {
               >
                 <Text style={styles.secondaryButtonTextModal}>إلغاء</Text>
               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={rescheduleModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeRescheduleModal}
+      >
+        <View style={styles.scannerOverlay}>
+          <View style={[styles.scannerCard, styles.manualModalCard, styles.rescheduleModalCard]}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.rescheduleScrollContent}
+            >
+              <View style={styles.rescheduleHeader}>
+                <View style={styles.rescheduleHeaderTextWrap}>
+                  <Text style={styles.rescheduleTitle}>تأجيل الموعد</Text>
+                  <Text style={styles.reschedulePatientName}>
+                    {rescheduleTarget?.user?.name || "المراجع"}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.rescheduleCloseButton}
+                  onPress={closeRescheduleModal}
+                  disabled={rescheduleLoading}
+                >
+                  <Feather name="x" size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.rescheduleSummaryCard}>
+                <View style={styles.rescheduleSummaryRow}>
+                  <Text style={styles.rescheduleSummaryLabel}>الموعد الحالي</Text>
+                  <Text style={styles.rescheduleSummaryValue}>
+                    {rescheduleTarget?.appointmentDate || "-"} {rescheduleTarget?.appointmentTime || ""}
+                  </Text>
+                </View>
+                <View style={styles.rescheduleSummaryDivider} />
+                <View style={styles.rescheduleSummaryRow}>
+                  <Text style={styles.rescheduleSummaryLabel}>الموعد الجديد</Text>
+                  <Text style={[styles.rescheduleSummaryValue, styles.rescheduleSummaryValuePrimary]}>
+                    {proposedRescheduleLabel}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.rescheduleSection}>
+                <Text style={styles.rescheduleSectionTitle}>اختر اليوم الجديد</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.rescheduleChipRow}
+                >
+                  {availableDates.map((date, index) => {
+                    const isActive = index === rescheduleDateIndex;
+                    return (
+                      <TouchableOpacity
+                        key={`res-${date.key}`}
+                        style={[styles.rescheduleChip, isActive && styles.rescheduleChipActive]}
+                        onPress={() => {
+                          setRescheduleDateIndex(index);
+                          setRescheduleTimeIndex(null);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.rescheduleChipTitle,
+                            isActive && styles.rescheduleChipTitleActive,
+                          ]}
+                        >
+                          {date.day}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rescheduleChipSubtitle,
+                            isActive && styles.rescheduleChipSubtitleActive,
+                          ]}
+                        >
+                          {date.day} {date.displayDate}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View style={styles.rescheduleSection}>
+                <Text style={styles.rescheduleSectionTitle}>اختر الوقت الجديد</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.rescheduleChipRow}
+                >
+                  {filteredRescheduleTimeSlotOptions.map((slot, index) => {
+                    const isActive = index === rescheduleTimeIndex;
+                    return (
+                      <TouchableOpacity
+                        key={`res-time-${slot.value}-${index}`}
+                        style={[styles.rescheduleTimeChip, isActive && styles.rescheduleTimeChipActive]}
+                        onPress={() => setRescheduleTimeIndex(index)}
+                      >
+                        <Text
+                          style={[
+                            styles.rescheduleTimeChipText,
+                            isActive && styles.rescheduleTimeChipTextActive,
+                          ]}
+                        >
+                          {slot.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {!filteredRescheduleTimeSlotOptions.length && (
+                    <View style={styles.rescheduleEmptyState}>
+                      <Feather name="alert-circle" size={16} color={colors.danger} />
+                      <Text style={styles.emptySlotsText}>لا توجد أوقات متاحة لهذا اليوم</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+
+              <View style={styles.rescheduleFooter}>
+                <TouchableOpacity
+                  style={[styles.rescheduleSecondaryButton]}
+                  onPress={closeRescheduleModal}
+                  disabled={rescheduleLoading}
+                >
+                  <Text style={styles.rescheduleSecondaryButtonText}>إلغاء</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.reschedulePrimaryButton, rescheduleLoading && styles.primaryButtonDisabled]}
+                  onPress={handleReschedule}
+                  disabled={rescheduleLoading}
+                >
+                  {rescheduleLoading ? (
+                    <ActivityIndicator color={colors.surface} />
+                  ) : (
+                    <>
+                      <Feather name="clock" size={15} color={colors.surface} />
+                      <Text style={styles.reschedulePrimaryButtonText}>تأكيد التأجيل</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -1068,12 +1845,6 @@ export default function ProviderAppointmentsScreen() {
               </View>
             ) : null}
             <View style={styles.modalActionsRow}>
-              <TouchableOpacity
-                style={[styles.modalActionButton, styles.chatModalButton]}
-                onPress={() => openChat(selectedAppointment)}
-              >
-                <Text style={styles.modalActionText}>مراسلة</Text>
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalActionButton, styles.whatsappButton]}
                 onPress={() => openWhatsApp(selectedAppointment?.user?.phone)}
@@ -1147,7 +1918,6 @@ export default function ProviderAppointmentsScreen() {
                       "patientName",
                       "userName",
                       "fullName",
-                      "doctorName",
                     ])}
                   </Text>
                 </View>
@@ -1211,6 +1981,44 @@ export default function ProviderAppointmentsScreen() {
                     })()}
                   </Text>
                 </View>
+
+                <View style={styles.scanRow}>
+                  <Text style={styles.scanKey}>المركز</Text>
+                  <Text style={styles.scanValue}>
+                    {(() => {
+                      const direct = getScanValue([
+                        "centerName",
+                        "medicalCenterName",
+                        "clinicName",
+                        "center",
+                        "medicalCenter",
+                      ]);
+                      if (direct && direct !== "-") return direct;
+                      const nested = scanResult?.parsed?.center?.name;
+                      return typeof nested === "string" && nested.trim() ? nested.trim() : "-";
+                    })()}
+                  </Text>
+                </View>
+
+                <View style={styles.scanRow}>
+                  <Text style={styles.scanKey}>مصدر الحجز</Text>
+                  <Text style={styles.scanValue}>
+                    {(() => {
+                      const sourceRaw = getScanValue(["bookingSource", "source", "type"]);
+                      const source = String(sourceRaw || "").toLowerCase();
+                      if (source === "center" || source === "center_booking") return "من مركز";
+                      if (source === "general" || source === "appointment") return "عام";
+
+                      const centerName = getScanValue([
+                        "centerName",
+                        "medicalCenterName",
+                        "clinicName",
+                      ]);
+                      if (centerName && centerName !== "-") return "من مركز";
+                      return "-";
+                    })()}
+                  </Text>
+                </View>
               </View>
             ) : (
               <Text style={styles.modalValue}>{scanResult?.raw}</Text>
@@ -1236,21 +2044,101 @@ export default function ProviderAppointmentsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* مودال تعيين موظف للعمل على الحالة */}
+      <Modal
+        visible={assignModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setAssignModalVisible(false); setAssignTarget(null); }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: "70%" }]}>  
+            <Text style={styles.modalTitle}>تعيين موظف للحالة</Text>
+            {assignTarget && (
+              <Text style={{ textAlign: "center", color: "#666", marginBottom: 8 }}>
+                حجز رقم {assignTarget.bookingNumber} - {assignTarget.patientName || assignTarget.userName}
+              </Text>
+            )}
+
+            {employeeListLoading ? (
+              <ActivityIndicator size="large" color="#2196F3" style={{ marginVertical: 24 }} />
+            ) : employeeList.length === 0 ? (
+              <Text style={{ textAlign: "center", color: "#999", marginVertical: 24 }}>لا يوجد موظفين متاحين</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 350 }}>
+                {employeeList.map((emp) => {
+                  const isCurrentlyAssigned =
+                    assignTarget?.assignedEmployee?.secretaryId === emp._id;
+                  return (
+                    <TouchableOpacity
+                      key={emp._id}
+                      disabled={assignLoading || isCurrentlyAssigned}
+                      onPress={() => handleAssignEmployee(emp._id)}
+                      style={{
+                        flexDirection: "row-reverse",
+                        alignItems: "center",
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        borderBottomWidth: 1,
+                        borderBottomColor: "#eee",
+                        backgroundColor: isCurrentlyAssigned ? "#E8F5E9" : "#fff",
+                        opacity: assignLoading ? 0.5 : 1,
+                      }}
+                    >
+                      <Feather
+                        name={isCurrentlyAssigned ? "check-circle" : "user"}
+                        size={20}
+                        color={isCurrentlyAssigned ? "#4CAF50" : "#555"}
+                        style={{ marginLeft: 10 }}
+                      />
+                      <View style={{ flex: 1, alignItems: "flex-end" }}>
+                        <Text style={{ fontSize: 15, fontWeight: "600", color: "#333" }}>
+                          {emp.name}
+                        </Text>
+                        {emp.jobTitle ? (
+                          <Text style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                            {emp.jobTitle}
+                          </Text>
+                        ) : null}
+                      </View>
+                      {isCurrentlyAssigned && (
+                        <Text style={{ fontSize: 11, color: "#4CAF50", marginRight: 8 }}>المعيّن حالياً</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {assignLoading && (
+              <ActivityIndicator size="small" color="#2196F3" style={{ marginTop: 10 }} />
+            )}
+
+            <TouchableOpacity
+              style={[styles.modalClose, { marginTop: 14 }]}
+              onPress={() => { setAssignModalVisible(false); setAssignTarget(null); }}
+            >
+              <Text style={styles.modalCloseText}>إغلاق</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 const createStyles = (colors, isDark) => {
-  const primaryTint = isDark ? "rgba(56,189,248,0.18)" : "#E0F2FE";
-  const neutralTint = isDark ? "rgba(255,255,255,0.06)" : "#F9FAFB";
-  const mutedCard = isDark ? "rgba(255,255,255,0.04)" : "#F3F4F6";
-  const recentCancelBg = isDark ? "rgba(245,158,11,0.18)" : "#FEF3C7";
-  const successTint = isDark ? "rgba(16,185,129,0.18)" : "#DCFCE7";
-  const warningTint = isDark ? "rgba(245,158,11,0.18)" : "#FEF3C7";
-  const dangerTint = isDark ? "rgba(239,68,68,0.16)" : "#FEE2E2";
-  const blockTint = isDark ? "rgba(239,68,68,0.16)" : "#FEF2F2";
-  const chatDisabled = isDark ? "rgba(255,255,255,0.08)" : "#E5E7EB";
-  const modalShadow = isDark ? colors.surface : "#111827";
+  const primaryTint = colors.surfaceAlt;
+  const neutralTint = colors.surfaceAlt;
+  const mutedCard = colors.surfaceAlt;
+  const recentCancelBg = colors.surfaceAlt;
+  const successTint = colors.surfaceAlt;
+  const warningTint = colors.surfaceAlt;
+  const dangerTint = colors.surfaceAlt;
+  const blockTint = colors.surfaceAlt;
+  const modalShadow = colors.overlay;
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.background },
@@ -1288,12 +2176,12 @@ const createStyles = (colors, isDark) => {
       marginTop: 2,
     },
     scanBar: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 24,
       paddingBottom: 12,
       flexDirection: "row",
       justifyContent: "center",
       alignItems: "center",
-      gap: 1,
+      gap: 10,
     },
     scanButton: {
       flexDirection: "row",
@@ -1302,13 +2190,13 @@ const createStyles = (colors, isDark) => {
       flex: 1,
       borderWidth: 1,
       borderColor: colors.primary,
-      backgroundColor: primaryTint,
-      paddingVertical: 12,
-      borderRadius: 12,
+      backgroundColor: colors.primary,
+      paddingVertical: 13,
+      borderRadius: 14,
       gap: 8,
     },
     scanButtonText: {
-      color: colors.primary,
+      color: colors.surface,
       fontWeight: "700",
       fontSize: 14,
       flexShrink: 1,
@@ -1331,6 +2219,62 @@ const createStyles = (colors, isDark) => {
       paddingHorizontal: 12,
       color: colors.text,
     },
+    filterBar: {
+      paddingHorizontal: 24,
+      paddingBottom: 12,
+      alignItems: "flex-end",
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    todayFilterButton: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: primaryTint,
+      borderRadius: 999,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+    },
+    todayFilterButtonActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    todayFilterText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "700",
+      writingDirection: "rtl",
+    },
+    todayFilterTextActive: {
+      color: colors.background,
+    },
+    bulkActionButton: {
+      borderRadius: 999,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderWidth: 1,
+    },
+    bulkAcceptButton: {
+      backgroundColor: colors.success,
+      borderColor: colors.success,
+    },
+    bulkCompleteButton: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    bulkActionButtonDisabled: {
+      opacity: 0.6,
+    },
+    bulkActionText: {
+      color: colors.surface,
+      fontSize: 12,
+      fontWeight: "700",
+      writingDirection: "rtl",
+      textAlign: "center",
+    },
     content: {
       paddingHorizontal: 24,
       paddingBottom: 32,
@@ -1338,27 +2282,115 @@ const createStyles = (colors, isDark) => {
     statsCard: {
       backgroundColor: mutedCard,
       borderRadius: 16,
-      padding: 16,
-      marginBottom: 16,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statsHeaderRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 12,
     },
     statsTitle: {
-      fontSize: 16,
-      fontWeight: "700",
+      fontSize: 13,
+      fontWeight: "800",
       color: colors.text,
-      marginBottom: 12,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    statsTodayText: {
+      fontSize: 11,
+      color: colors.primary,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     statsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    statsItem: {
+      width: "48%",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      paddingVertical: 7,
+      paddingHorizontal: 8,
     },
     statsLabel: {
-      fontSize: 12,
+      fontSize: 11,
       color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     statsValue: {
-      fontSize: 18,
-      fontWeight: "700",
+      fontSize: 14,
+      fontWeight: "800",
       color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+      marginTop: 1,
+    },
+    listHeader: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 10,
+    },
+    listHeaderTextWrap: {
+      gap: 2,
+      flex: 1,
+      alignItems: "flex-end",
+    },
+    listHeaderTitle: {
+      fontSize: 19,
+      fontWeight: "800",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    listHeaderSubtitle: {
+      fontSize: 12,
+      color: colors.textMuted,
+      writingDirection: "rtl",
+      textAlign: "right",
+    },
+    listHeaderBadges: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 8,
+      marginRight: 10,
+    },
+    listHeaderTodayBadge: {
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: primaryTint,
+      borderRadius: 999,
+      paddingVertical: 4,
+      paddingHorizontal: 10,
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "800",
+      writingDirection: "rtl",
+      textAlign: "center",
+    },
+    listHeaderCount: {
+      minWidth: 28,
+      paddingVertical: 5,
+      paddingHorizontal: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: primaryTint,
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: "800",
+      textAlign: "center",
     },
     manualButton: {
       flexDirection: "row",
@@ -1366,15 +2398,15 @@ const createStyles = (colors, isDark) => {
       justifyContent: "center",
       flex: 1,
       gap: 6,
-      backgroundColor: colors.text,
+      backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.text,
-      borderRadius: 12,
-      paddingVertical: 12,
+      borderColor: colors.border,
+      borderRadius: 14,
+      paddingVertical: 13,
       paddingHorizontal: 16,
     },
     manualButtonText: {
-      color: colors.background,
+      color: colors.text,
       fontWeight: "700",
     },
     reportButton: {
@@ -1410,17 +2442,18 @@ const createStyles = (colors, isDark) => {
     card: {
       backgroundColor: colors.surface,
       borderRadius: 16,
-      padding: 16,
+      paddingVertical: 14,
+      paddingHorizontal: 14,
       borderWidth: 1,
       borderColor: colors.border,
       marginBottom: 12,
     },
     cardHeader: {
       flexDirection: "row-reverse",
-      justifyContent: "flex-start",
+      justifyContent: "space-between",
       alignItems: "center",
       gap: 10,
-      alignSelf: "flex-end",
+      width: "100%",
     },
     patient: {
       fontSize: 16,
@@ -1433,53 +2466,87 @@ const createStyles = (colors, isDark) => {
       borderWidth: 1,
       borderRadius: 999,
       paddingHorizontal: 10,
-      paddingVertical: 2,
+      paddingVertical: 4,
       fontSize: 12,
-      fontWeight: "600",
+      fontWeight: "700",
       writingDirection: "rtl",
     },
-    infoRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      marginTop: 8,
-    },
-    infoText: {
-      fontSize: 14,
-      color: colors.textMuted,
-    },
-    notesRow: {
+    quickMetaRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      gap: 8,
       marginTop: 10,
     },
-    bookingRow: {
-      flexDirection: "row-reverse",
-      justifyContent: "flex-start",
-      alignItems: "center",
-      gap: 8,
-      marginTop: 6,
-      alignSelf: "flex-start",
+    quickMetaBadge: {
+      width: "48%",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: neutralTint,
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      minHeight: 52,
+      justifyContent: "center",
     },
-    bookingLabel: {
-      fontSize: 12,
+    quickMetaLabel: {
+      fontSize: 11,
       color: colors.textMuted,
       textAlign: "right",
       writingDirection: "rtl",
     },
-    bookingValue: {
+    quickMetaValue: {
       fontSize: 14,
-      fontWeight: "700",
+      fontWeight: "800",
       color: colors.text,
       textAlign: "right",
       writingDirection: "rtl",
+      marginTop: 2,
+    },
+    timeRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      gap: 8,
+      marginTop: 10,
+    },
+    timeItem: {
+      flex: 1,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      borderRadius: 10,
+      backgroundColor: primaryTint,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 8,
+      paddingHorizontal: 8,
+    },
+    timeText: {
+      fontSize: 13,
+      color: colors.text,
+      fontWeight: "700",
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+    notesRow: {
+      marginTop: 10,
+      borderRadius: 10,
+      backgroundColor: neutralTint,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
     },
     notesLabel: {
       fontSize: 12,
       color: colors.textMuted,
       marginBottom: 4,
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     notesText: {
       fontSize: 14,
       color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     manageRow: {
       flexDirection: "row",
@@ -1492,27 +2559,28 @@ const createStyles = (colors, isDark) => {
     },
     actionsRow: {
       flexDirection: "row",
-      justifyContent: "flex-start",
+      justifyContent: "flex-end",
       marginTop: 16,
       flexWrap: "wrap",
       gap: 8,
     },
     actionButton: {
-      paddingVertical: 12,
+      paddingVertical: 11,
       paddingHorizontal: 14,
       borderRadius: 12,
-      minWidth: 90,
+      minWidth: 102,
+      flexGrow: 1,
       alignItems: "center",
       borderWidth: 1,
       borderColor: "transparent",
     },
     acceptButton: {
-      backgroundColor: successTint,
+      backgroundColor: colors.success,
       borderColor: colors.success,
     },
     cancelButton: {
-      backgroundColor: warningTint,
-      borderColor: colors.warning,
+      backgroundColor: colors.danger,
+      borderColor: colors.danger,
     },
     deleteButton: {
       backgroundColor: dangerTint,
@@ -1521,20 +2589,17 @@ const createStyles = (colors, isDark) => {
     deleteButtonText: {
       color: colors.danger,
     },
+    rescheduleButton: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    completeButton: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
     blockButton: {
       backgroundColor: blockTint,
       borderColor: colors.danger,
-    },
-    chatButton: {
-      backgroundColor: primaryTint,
-    },
-    chatButtonDisabled: {
-      backgroundColor: chatDisabled,
-    },
-    chatButtonText: {
-      color: colors.primary,
-      fontSize: 14,
-      fontWeight: "700",
     },
     contactButtonTextDisabled: {
       color: colors.placeholder,
@@ -1568,6 +2633,193 @@ const createStyles = (colors, isDark) => {
       shadowColor: modalShadow,
       shadowOpacity: 0.08,
       shadowRadius: 12,
+    },
+    rescheduleModalCard: {
+      maxHeight: "88%",
+      padding: 16,
+    },
+    rescheduleScrollContent: {
+      gap: 14,
+      paddingBottom: 10,
+    },
+    rescheduleHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    rescheduleHeaderTextWrap: {
+      flex: 1,
+      gap: 4,
+    },
+    rescheduleTitle: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    reschedulePatientName: {
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    rescheduleCloseButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: neutralTint,
+      marginLeft: 10,
+    },
+    rescheduleSummaryCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      backgroundColor: neutralTint,
+      padding: 12,
+      gap: 8,
+    },
+    rescheduleSummaryRow: {
+      gap: 6,
+    },
+    rescheduleSummaryLabel: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    rescheduleSummaryValue: {
+      fontSize: 14,
+      color: colors.text,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    rescheduleSummaryValuePrimary: {
+      color: colors.primary,
+    },
+    rescheduleSummaryDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginVertical: 2,
+    },
+    rescheduleSection: {
+      gap: 8,
+    },
+    rescheduleSectionTitle: {
+      fontSize: 13,
+      color: colors.text,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    rescheduleChipRow: {
+      flexDirection: "row",
+      gap: 8,
+      paddingVertical: 2,
+    },
+    rescheduleChip: {
+      minWidth: 122,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: neutralTint,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      gap: 2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    rescheduleChipActive: {
+      borderColor: colors.primary,
+      backgroundColor: primaryTint,
+    },
+    rescheduleChipTitle: {
+      fontSize: 13,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    rescheduleChipTitleActive: {
+      color: colors.primary,
+    },
+    rescheduleChipSubtitle: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    rescheduleChipSubtitleActive: {
+      color: colors.primary,
+      opacity: 0.9,
+    },
+    rescheduleTimeChip: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: neutralTint,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    rescheduleTimeChipActive: {
+      borderColor: colors.primary,
+      backgroundColor: primaryTint,
+    },
+    rescheduleTimeChipText: {
+      fontSize: 13,
+      color: colors.text,
+      fontWeight: "700",
+    },
+    rescheduleTimeChipTextActive: {
+      color: colors.primary,
+    },
+    rescheduleEmptyState: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 8,
+      borderRadius: 10,
+      backgroundColor: dangerTint,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    rescheduleFooter: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 4,
+    },
+    rescheduleSecondaryButton: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: neutralTint,
+    },
+    rescheduleSecondaryButtonText: {
+      color: colors.textMuted,
+      fontWeight: "700",
+      fontSize: 14,
+    },
+    reschedulePrimaryButton: {
+      flex: 1.6,
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 8,
+    },
+    reschedulePrimaryButtonText: {
+      color: colors.surface,
+      fontWeight: "800",
+      fontSize: 15,
     },
     manualHeader: {
       flexDirection: "row",
@@ -1798,13 +3050,10 @@ const createStyles = (colors, isDark) => {
       fontWeight: "700",
     },
     whatsappButton: {
-      backgroundColor: "#25D366",
+      backgroundColor: colors.success,
     },
     callButton: {
       backgroundColor: colors.primary,
-    },
-    chatModalButton: {
-      backgroundColor: "#2563EB",
     },
     blockModalButton: {
       backgroundColor: colors.danger,
@@ -1835,7 +3084,7 @@ const createStyles = (colors, isDark) => {
       borderRadius: 14,
       overflow: "hidden",
       marginTop: 12,
-      backgroundColor: "#000",
+      backgroundColor: colors.surfaceAlt,
     },
     errorText: {
       color: colors.danger,
@@ -1845,8 +3094,8 @@ const createStyles = (colors, isDark) => {
     },
     actionText: {
       fontSize: 14,
-      fontWeight: "600",
-      color: colors.text,
+      fontWeight: "700",
+      color: colors.surface,
     },
     loader: {
       marginVertical: 20,
