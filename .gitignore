@@ -3,6 +3,10 @@ desktop-dist-build/
 desktop-dist/
 # أسرار Google/Firebase
 medicare-adba7-firebase-adminsdk-fbsvc-2a466761da.json
+# Firebase secrets
+*.json
+firebase-adminsdk*.json
+serviceAccountKey.json
 # ========================================
 # Dependencies
 # ========================================
