@@ -17,7 +17,12 @@ import Constants from "expo-constants";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import {
   API_BASE_URL,
+  clearExpoPushToken,
+  clearUserRole,
+  normalizeUserRole,
   saveRoleSelection,
+  saveRefreshToken,
+  saveToken,
   getRoleSelection,
   logout,
   getToken,
@@ -44,6 +49,7 @@ export default function LoginScreen() {
     Constants?.manifest2?.extra ||
     {};
   const privacyPolicyUrl = String(extra?.privacyPolicyUrl || "https://medicare-iq.com/privacy").trim();
+  const termsUrl = String(extra?.termsUrl || "https://medicare-iq.com/terms").trim();
 
   const openPrivacyPolicy = async () => {
     const url = String(privacyPolicyUrl || "").trim();
@@ -55,6 +61,19 @@ export default function LoginScreen() {
       await Linking.openURL(url);
     } catch {
       Alert.alert("خطأ", "تعذّر فتح رابط الخصوصية.");
+    }
+  };
+
+  const openTerms = async () => {
+    const url = String(termsUrl || "").trim();
+    if (!url) {
+      Alert.alert("تنبيه", "رابط شروط الخدمة غير متوفر حالياً.");
+      return;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("خطأ", "تعذّر فتح رابط شروط الخدمة.");
     }
   };
 
@@ -79,9 +98,20 @@ export default function LoginScreen() {
         const token = await getToken();
         if (!token) return;
 
-        const storedRole = await getUserRole();
-        const resolvedRole = storedRole || params.role || "patient";
-        const destination = resolvedRole === "doctor" ? "ProviderTabs" : "MainTabs";
+        const storedRole = normalizeUserRole(await getUserRole());
+        const routeRole = normalizeUserRole(params.role);
+        const selectedRole = normalizeUserRole(await getRoleSelection());
+        const resolvedRole = storedRole || routeRole || selectedRole;
+
+        if (!resolvedRole) {
+          await saveToken(null);
+          await saveRefreshToken(null);
+          await clearExpoPushToken();
+          await clearUserRole();
+          return;
+        }
+
+        const destination = (resolvedRole === "doctor" || resolvedRole === "secretary") ? "ProviderTabs" : resolvedRole === "lab" ? "LabTabs" : "MainTabs";
         if (active) {
           navigation.replace(destination);
         }
@@ -136,11 +166,16 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneDigits, password }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       const data = await res.json();
 
@@ -156,20 +191,33 @@ export default function LoginScreen() {
         if (data.refreshToken) {
           await api.saveRefreshToken(data.refreshToken);
         }
-        await api.saveUserRole(data.user?.role || role);
+        const resolvedRole = normalizeUserRole(data.user?.role || role);
+        await api.saveUserRole(resolvedRole);
 
-        // 🔔 Register push token immediately after login
+        // 🔔 Request push permission + register token BEFORE navigation
         try {
+          console.log("[Login] Starting push registration...");
           const push = await import("../lib/pushNotifications");
-          const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
+          const result = await push.registerForPushNotificationsAsync();
+          const expoPushToken = result?.expoPushToken;
+          console.log("[Login] Push token result:", expoPushToken ? "GOT TOKEN" : "NO TOKEN");
           if (expoPushToken) {
-            await api.registerPushTokens({ expoPushToken });
+            console.log("[Login] Sending token to backend...");
+            await api.registerExpoPushToken(expoPushToken);
+            console.log("[Login] ✅ Push token registered with backend");
           }
         } catch (pushErr) {
-          console.log("Push registration after login failed:", pushErr);
+          console.log("[Login] Push registration error:", pushErr?.message || pushErr);
         }
 
-        const destination = (data.user?.role || role) === "doctor" ? "ProviderTabs" : "MainTabs";
+        const destination =
+          resolvedRole === "doctor" || resolvedRole === "secretary"
+            ? "ProviderTabs"
+            : resolvedRole === "lab"
+            ? "LabTabs"
+            : resolvedRole === "patient"
+            ? "MainTabs"
+            : "RoleSelection";
         navigation.reset({ index: 0, routes: [{ name: destination }] });
         return;
       }
@@ -295,12 +343,16 @@ export default function LoginScreen() {
             <Text style={styles.consentLink} onPress={openPrivacyPolicy}>
               سياسة الخصوصية
             </Text>
+            <Text> و </Text>
+            <Text style={styles.consentLink} onPress={openTerms}>
+              شروط الخدمة
+            </Text>
           </Text>
         </View>
 
         <TouchableOpacity
           style={styles.secondaryButton}
-          onPress={() => navigation.navigate("Signup", { role })}
+          onPress={() => navigation.navigate(role === "lab" ? "LabSignup" : "Signup", { role })}
         >
           <Text style={styles.secondaryButtonText}>إنشاء حساب</Text>
         </TouchableOpacity>

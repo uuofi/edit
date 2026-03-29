@@ -1,3 +1,6 @@
+# Ignore build output folders
+desktop-dist-build/
+desktop-dist/
 # أسرار Google/Firebase
 medicare-adba7-firebase-adminsdk-fbsvc-2a466761da.json
 # ========================================
@@ -13,6 +16,8 @@ dist/
 web-build/
 expo-env.d.ts
 
+desktop-dist-build/
+desktop-dist/
 # ========================================
 # Generated native folders (Managed Expo)
 # ========================================

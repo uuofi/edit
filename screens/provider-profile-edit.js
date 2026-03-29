@@ -190,123 +190,138 @@ export default function ProviderProfileEditScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>معلومات عامة</Text>
-          <View style={styles.avatarSection}>
-            <View style={styles.avatarPreviewWrapper}>
-              {avatarPreview ? (
-                <Image source={{ uri: avatarPreview }} style={styles.avatarImage} />
-              ) : (
-                <Feather name="user" size={40} color={colors.placeholder} />
-              )}
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroIconWrap}>
+                <Feather name="user-check" size={18} color={colors.primary} />
+              </View>
+              <Text style={styles.heroSubtitle}>تحديث بيانات الطبيب بشكل احترافي ودقيق</Text>
             </View>
-            <View style={styles.avatarActions}>
-              <Text style={styles.label}>الصورة الشخصية</Text>
-              <TouchableOpacity style={styles.avatarButton} onPress={handleChooseImage}>
-                <Text style={styles.avatarButtonText}>اختيار صورة من الاستوديو</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.heroTitle}>الملف الشخصي الطبي</Text>
           </View>
-          <Text style={styles.label}>اسم العرض</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="مثلاً د. ليلى محمد"
-            placeholderTextColor={colors.placeholder}
-            value={formData.displayName}
-            onChangeText={(value) => handleChange("displayName", value)}
-          />
-          <View style={styles.splitRow}>
-            <View style={styles.flexItem}>
-              <Text style={styles.label}>التخصص</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="طب الأطفال"
-                placeholderTextColor={colors.placeholder}
-                value={formData.specialty}
-                onChangeText={(value) => handleChange("specialty", value)}
-              />
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>معلومات عامة</Text>
+            <View style={styles.avatarSection}>
+              <View style={styles.avatarPreviewWrapper}>
+                {avatarPreview ? (
+                  <Image source={{ uri: avatarPreview }} style={styles.avatarImage} />
+                ) : (
+                  <Feather name="user" size={40} color={colors.placeholder} />
+                )}
+              </View>
+              <View style={styles.avatarActions}>
+                <Text style={styles.label}>الصورة الشخصية</Text>
+                <TouchableOpacity style={styles.avatarButton} onPress={handleChooseImage}>
+                  <Text style={styles.avatarButtonText}>اختيار صورة من الاستوديو</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.flexItem}>
-              <Text style={styles.label}>اللقب / القسم</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="أمراض القلب"
-                placeholderTextColor={colors.placeholder}
-                value={formData.specialtyLabel}
-                onChangeText={(value) => handleChange("specialtyLabel", value)}
-              />
+            <Text style={styles.label}>اسم العرض</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="مثلاً د. ليلى محمد"
+              placeholderTextColor={colors.placeholder}
+              value={formData.displayName}
+              onChangeText={(value) => handleChange("displayName", value)}
+            />
+            <View style={styles.splitRow}>
+              <View style={styles.flexItem}>
+                <Text style={styles.label}>التخصص</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="طب الأطفال"
+                  placeholderTextColor={colors.placeholder}
+                  value={formData.specialty}
+                  onChangeText={(value) => handleChange("specialty", value)}
+                />
+              </View>
+              <View style={styles.flexItem}>
+                <Text style={styles.label}>اللقب / القسم</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="أمراض القلب"
+                  placeholderTextColor={colors.placeholder}
+                  value={formData.specialtyLabel}
+                  onChangeText={(value) => handleChange("specialtyLabel", value)}
+                />
+              </View>
             </View>
+            <Text style={styles.label}>الموقع / العيادة</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="مثلاً مستشفى الرفاعي، النجف"
+              placeholderTextColor={colors.placeholder}
+              value={formData.location}
+              onChangeText={(value) => handleChange("location", value)}
+            />
+            <TouchableOpacity
+              style={styles.mapPickerButton}
+              onPress={() =>
+                navigation.navigate("LocationPicker", {
+                  returnTo: "ProviderProfileEdit",
+                  title: "اختيار موقع العيادة",
+                  initialLatitude: formData.locationLat,
+                  initialLongitude: formData.locationLng,
+                  initialAddress: formData.location,
+                })
+              }
+            >
+              <Text style={styles.mapPickerButtonText}>اختيار الموقع من الخريطة</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.label}>الموقع / العيادة</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="مثلاً مستشفى الرفاعي، النجف"
-            placeholderTextColor={colors.placeholder}
-            value={formData.location}
-            onChangeText={(value) => handleChange("location", value)}
-          />
 
-          <TouchableOpacity
-            style={styles.mapPickerButton}
-            onPress={() =>
-              navigation.navigate("LocationPicker", {
-                returnTo: "ProviderProfileEdit",
-                title: "اختيار موقع العيادة",
-                initialLatitude: formData.locationLat,
-                initialLongitude: formData.locationLng,
-                initialAddress: formData.location,
-              })
-            }
-          >
-            <Text style={styles.mapPickerButtonText}>اختيار الموقع من الخريطة</Text>
-          </TouchableOpacity>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>التراخيص والرسوم</Text>
+            <Text style={styles.label}>رقم الرخصة</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="4521-طب"
+              placeholderTextColor={colors.placeholder}
+              value={formData.licenseNumber}
+              onChangeText={(value) => handleChange("licenseNumber", value)}
+            />
+            <Text style={styles.label}>رسوم الاستشارة (رقم)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="45000"
+              keyboardType="numeric"
+              placeholderTextColor={colors.placeholder}
+              value={formData.consultationFee}
+              onChangeText={(value) => handleChange("consultationFee", value)}
+            />
+            <Text style={styles.label}>رقم الموظف للتواصل</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="05xxxxxxx"
+              keyboardType="phone-pad"
+              placeholderTextColor={colors.placeholder}
+              value={formData.secretaryPhone}
+              onChangeText={(value) => handleChange("secretaryPhone", value)}
+            />
+          </View>
 
-          <Text style={styles.sectionTitle}>التراخيص والرسوم</Text>
-          <Text style={styles.label}>رقم الرخصة</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="4521-طب"
-            placeholderTextColor={colors.placeholder}
-            value={formData.licenseNumber}
-            onChangeText={(value) => handleChange("licenseNumber", value)}
-          />
-          <Text style={styles.label}>رسوم الاستشارة (رقم)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="45000"
-            keyboardType="numeric"
-            placeholderTextColor={colors.placeholder}
-            value={formData.consultationFee}
-            onChangeText={(value) => handleChange("consultationFee", value)}
-          />
-          <Text style={styles.label}>رقم السكرتير للتواصل</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="05xxxxxxx"
-            keyboardType="phone-pad"
-            placeholderTextColor={colors.placeholder}
-            value={formData.secretaryPhone}
-            onChangeText={(value) => handleChange("secretaryPhone", value)}
-          />
-
-          <Text style={styles.sectionTitle}>التفاصيل المهنية</Text>
-          <Text style={styles.label}>الشهادة والتخصصات</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
-            placeholder="سيرة مختصرة عن الشهادة"
-            multiline
-            placeholderTextColor={colors.placeholder}
-            value={formData.certification}
-            onChangeText={(value) => handleChange("certification", value)}
-          />
-          <Text style={styles.label}>السيرة المهنية</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
-            placeholder="أبحاث، خبرات، مجالات اهتمام"
-            multiline
-            placeholderTextColor={colors.placeholder}
-            value={formData.cv}
-            onChangeText={(value) => handleChange("cv", value)}
-          />
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>التفاصيل المهنية</Text>
+            <Text style={styles.label}>الشهادة والتخصصات</Text>
+            <TextInput
+              style={[styles.input, styles.multiline]}
+              placeholder="سيرة مختصرة عن الشهادة"
+              multiline
+              placeholderTextColor={colors.placeholder}
+              value={formData.certification}
+              onChangeText={(value) => handleChange("certification", value)}
+            />
+            <Text style={styles.label}>السيرة المهنية</Text>
+            <TextInput
+              style={[styles.input, styles.multiline]}
+              placeholder="أبحاث، خبرات، مجالات اهتمام"
+              multiline
+              placeholderTextColor={colors.placeholder}
+              value={formData.cv}
+              onChangeText={(value) => handleChange("cv", value)}
+            />
+          </View>
 
           <View style={styles.footer}>{/* spacer */}</View>
         </ScrollView>
@@ -367,17 +382,66 @@ const createStyles = (colors) =>
       padding: 20,
       paddingBottom: 120,
     },
+    heroCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      padding: 14,
+      marginBottom: 14,
+    },
+    heroTopRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 6,
+    },
+    heroIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceAlt,
+    },
+    heroTitle: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    heroSubtitle: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    sectionCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      padding: 14,
+      marginBottom: 12,
+    },
     sectionTitle: {
       fontSize: 16,
-      fontWeight: "600",
+      fontWeight: "700",
       color: colors.text,
       marginTop: 8,
       marginBottom: 6,
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     label: {
       fontSize: 13,
       color: colors.textMuted,
       marginBottom: 4,
+      textAlign: "right",
+      writingDirection: "rtl",
     },
     input: {
       borderWidth: 1,

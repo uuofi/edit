@@ -12,9 +12,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
+import { useAppTheme } from "../lib/useTheme";
 import {
   bookAppointment,
+  bookCenterAppointment,
   ApiError,
+  fetchCenterDoctorBlockedSlots,
+  fetchCenterDoctorServices,
   fetchDoctorBlockedSlots,
   createDoctorAppointment,
   fetchDoctorServices,
@@ -95,6 +99,14 @@ const createTimeSlots = (schedule) => {
   return slots;
 };
 
+/** Return YYYY-MM-DD using LOCAL date components (avoids UTC shift). */
+const toLocalIso = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 const getNextActiveDates = (activeDays, count = 5) => {
   const workingDays =
     Array.isArray(activeDays) && activeDays.length
@@ -107,12 +119,13 @@ const getNextActiveDates = (activeDays, count = 5) => {
   while (dates.length < count) {
     const dayKey = WEEKDAY_KEYS[pointer.getDay()];
     if (workingDays.includes(dayKey)) {
+      const localIso = toLocalIso(pointer);
       dates.push({
-        key: `${dayKey}-${pointer.toISOString()}`,
+        key: `${dayKey}-${localIso}`,
         day: DAY_LABELS[dayKey] || dayKey,
         displayDate: pointer
           .toLocaleDateString("ar-EG", { day: "numeric" }),
-        iso: pointer.toISOString().split("T")[0],
+        iso: localIso,
       });
     }
     pointer.setDate(pointer.getDate() + 1);
@@ -124,6 +137,7 @@ const getNextActiveDates = (activeDays, count = 5) => {
 export default function BookAppointmentScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const { colors } = useAppTheme();
   const params = route.params || {};
 
   // استخدم بيانات الدكتور من params فقط إذا كانت موجودة، وإلا لا تعرض بيانات افتراضية
@@ -133,6 +147,18 @@ export default function BookAppointmentScreen() {
   const specialtySlug = typeof params.specialtySlug === "string" ? params.specialtySlug : "";
   const avatarUrl = typeof params.avatarUrl === "string" ? params.avatarUrl : "";
   const doctorId = typeof params.doctorId === "string" || typeof params.doctorId === "number" ? params.doctorId : "";
+  const medicalCenterId =
+    typeof params.medicalCenterId === "string" || typeof params.medicalCenterId === "number"
+      ? String(params.medicalCenterId)
+      : "";
+  const doctorCenterId =
+    typeof params.doctorCenterId === "string" || typeof params.doctorCenterId === "number"
+      ? String(params.doctorCenterId)
+      : "";
+
+  const isValidObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || ""));
+  const isCenterBookingContext =
+    isValidObjectId(medicalCenterId) && isValidObjectId(doctorCenterId);
   
   const [selectedDateIndex, setSelectedDateIndex] = useState(null);
   const [selectedTimeIndex, setSelectedTimeIndex] = useState(null);
@@ -147,10 +173,27 @@ export default function BookAppointmentScreen() {
     selectedServiceIndex !== null ? services[selectedServiceIndex] : null;
 
   const selectedServiceId = selectedService?._id || null;
+  const selectedServiceOriginalPrice =
+    typeof selectedService?.originalPrice === "number"
+      ? selectedService.originalPrice
+      : typeof selectedService?.price === "number"
+        ? selectedService.price
+        : Number(selectedService?.price) || null;
+  const selectedServiceDiscountPercent =
+    typeof selectedService?.discountPercent === "number"
+      ? selectedService.discountPercent
+      : Number(selectedService?.discountPercent) || 0;
+  const selectedServiceDiscountedPrice =
+    typeof selectedService?.discountedPrice === "number"
+      ? selectedService.discountedPrice
+      : null;
   const selectedServicePrice =
-    typeof selectedService?.price === "number"
-      ? selectedService.price
-      : Number(selectedService?.price) || null;
+    Number.isFinite(selectedServiceDiscountedPrice)
+      ? selectedServiceDiscountedPrice
+      : selectedServiceOriginalPrice;
+  const selectedServiceHasDiscount =
+    Number(selectedServiceDiscountPercent) > 0 &&
+    Number(selectedServicePrice) < Number(selectedServiceOriginalPrice);
   const selectedServiceDuration =
     typeof selectedService?.durationMinutes === "number"
       ? selectedService.durationMinutes
@@ -198,7 +241,7 @@ export default function BookAppointmentScreen() {
       createTimeSlots({
         startTime: doctorSchedule.startTime,
         endTime: doctorSchedule.endTime,
-        duration: effectiveSlotDuration,
+        duration: doctorSchedule.duration,
         breakEnabled: doctorSchedule.breakEnabled,
         breakFrom: doctorSchedule.breakFrom,
         breakTo: doctorSchedule.breakTo,
@@ -206,7 +249,7 @@ export default function BookAppointmentScreen() {
     [
       doctorSchedule.startTime,
       doctorSchedule.endTime,
-      effectiveSlotDuration,
+      doctorSchedule.duration,
       doctorSchedule.breakEnabled,
       doctorSchedule.breakFrom,
       doctorSchedule.breakTo,
@@ -216,9 +259,34 @@ export default function BookAppointmentScreen() {
   useEffect(() => {
     let active = true;
     const doctorIdString = doctorId != null ? String(doctorId) : "";
-    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(doctorIdString);
+    const isDoctorIdValid = isValidObjectId(doctorIdString);
 
-    if (!doctorIdString || !isValidObjectId) {
+    if (isCenterBookingContext) {
+      setServicesLoading(true);
+      fetchCenterDoctorServices(medicalCenterId, doctorCenterId)
+        .then((data) => {
+          if (!active) return;
+          const list = Array.isArray(data?.services) ? data.services : [];
+          setServices(list);
+          setSelectedServiceIndex(list.length ? 0 : null);
+        })
+        .catch((err) => {
+          console.error("Center services fetch failed:", err);
+          if (active) {
+            setServices([]);
+            setSelectedServiceIndex(null);
+          }
+        })
+        .finally(() => {
+          if (active) setServicesLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }
+
+    if (!doctorIdString || !isDoctorIdValid) {
       setServices([]);
       setSelectedServiceIndex(null);
       setServicesLoading(false);
@@ -269,10 +337,27 @@ export default function BookAppointmentScreen() {
     if (!blockedForDate.length) {
       return baseTimeSlotOptions;
     }
-    return baseTimeSlotOptions.filter(
-      (slot) => !blockedForDate.includes(slot.value)
-    );
-  }, [baseTimeSlotOptions, selectedDateIso, blockedSlots]);
+    const blockedSet = new Set(blockedForDate);
+    const baseSlotDuration =
+      Number.isFinite(Number(doctorSchedule.duration)) && Number(doctorSchedule.duration) > 0
+        ? Number(doctorSchedule.duration)
+        : DEFAULT_SCHEDULE.duration;
+    const span = Math.max(1, Math.ceil(Number(effectiveSlotDuration || baseSlotDuration) / baseSlotDuration));
+
+    return baseTimeSlotOptions.filter((slot) => {
+      const startMin = parseMinutes(slot.value);
+      for (let i = 0; i < span; i += 1) {
+        const covered = startMin + i * baseSlotDuration;
+        const hh = String(Math.floor(covered / 60)).padStart(2, "0");
+        const mm = String(covered % 60).padStart(2, "0");
+        const coveredSlot = `${hh}:${mm}`;
+        if (blockedSet.has(coveredSlot)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [baseTimeSlotOptions, selectedDateIso, blockedSlots, doctorSchedule.duration, effectiveSlotDuration]);
 
   const markSlotBlocked = (dateIso, timeValue) => {
     if (!dateIso || !timeValue) {
@@ -293,9 +378,34 @@ export default function BookAppointmentScreen() {
   const loadBlockedSlots = useCallback(() => {
     let isActive = true;
     const doctorIdString = doctorId != null ? String(doctorId) : "";
-    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(doctorIdString);
+    const isDoctorIdValid = isValidObjectId(doctorIdString);
 
-    if (!doctorIdString || !isValidObjectId) {
+    if (isCenterBookingContext) {
+      setBlockedLoading(true);
+      fetchCenterDoctorBlockedSlots(medicalCenterId, doctorCenterId)
+        .then((data) => {
+          if (!isActive) return;
+          const slots = data.blockedSlots || {};
+          setBlockedSlots(slots);
+        })
+        .catch((err) => {
+          console.error("Center blocked slots fetch failed:", err);
+          if (isActive) {
+            setBlockedSlots({});
+          }
+        })
+        .finally(() => {
+          if (isActive) {
+            setBlockedLoading(false);
+          }
+        });
+
+      return () => {
+        isActive = false;
+      };
+    }
+
+    if (!doctorIdString || !isDoctorIdValid) {
       setBlockedSlots({});
       setBlockedLoading(false);
       return () => {
@@ -397,16 +507,27 @@ export default function BookAppointmentScreen() {
           patientPhone: params.patientPhone || "",
         };
         data = await createDoctorAppointment(manualPayload);
+      } else if (isCenterBookingContext) {
+        const centerPayload = {
+          doctorCenterId,
+          appointmentDate: `${selectedDate.day}، ${selectedDate.displayDate}`,
+          appointmentDateIso: selectedDate.iso,
+          appointmentTime: selectedSlot.label,
+          appointmentTimeValue: selectedSlot.value,
+          notes: "",
+          ...(selectedServiceId ? { serviceId: selectedServiceId } : {}),
+        };
+        data = await bookCenterAppointment(medicalCenterId, centerPayload);
       } else {
         data = await bookAppointment(payload);
       }
 
       markSlotBlocked(selectedDateIso, selectedSlot.value);
-      const appointment = data.appointment;
+      const appointment = data.appointment || data.booking;
       Alert.alert("تم الحجز", "تم تسجيل الموعد بنجاح.");
       navigation.replace("AppointmentDetails", {
         name: appointment.doctorName,
-        role: appointment.doctorRole,
+        role: appointment.doctorRole || appointment.doctorProfile?.specialtyLabel || "طبيب",
         specialty: appointment.specialty,
         appointmentDate: appointment.appointmentDate,
         appointmentTime: appointment.appointmentTime,
@@ -414,7 +535,8 @@ export default function BookAppointmentScreen() {
         appointmentId: appointment._id,
         avatarUrl: appointment.doctorProfile?.avatarUrl,
         location: appointment.doctorProfile?.location,
-        consultationFee: appointment.service?.price ?? appointment.doctorProfile?.consultationFee,
+        consultationFee:
+          appointment.service?.price ?? appointment.price ?? appointment.doctorProfile?.consultationFee,
         service: appointment.service,
         doctorBio: appointment.doctorProfile?.bio,
         secretaryPhone: appointment.doctorProfile?.secretaryPhone,
@@ -438,6 +560,7 @@ export default function BookAppointmentScreen() {
 
   const hasDates = availableDates.length > 0;
   const hasSlots = filteredTimeSlotOptions.length > 0;
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -445,7 +568,7 @@ export default function BookAppointmentScreen() {
         {/* loader for server schedule removed — use params.schedule when provided */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Feather name="chevron-right" size={24} color="#111827" />
+            <Feather name="chevron-right" size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>حدد الموعد</Text>
           <View style={styles.backButton} />
@@ -469,7 +592,7 @@ export default function BookAppointmentScreen() {
           <Text style={styles.sectionTitle}>اختر الخدمة</Text>
           {servicesLoading ? (
             <View style={{ paddingVertical: 12 }}>
-              <ActivityIndicator size="small" color="#0EA5E9" />
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
           ) : services.length === 0 ? (
             <Text style={styles.helperText}>
@@ -494,14 +617,30 @@ export default function BookAppointmentScreen() {
                       <Text style={[styles.optionTitle, active && styles.optionTitleActive]}>
                         {svc.name}
                       </Text>
-                      <Text style={styles.optionMeta}>
-                        {formatCurrency(svc.price)} • {svc.durationMinutes} دقيقة
-                      </Text>
+                      {Number(svc?.discountPercent) > 0 && Number(svc?.discountedPrice) < Number(svc?.originalPrice ?? svc?.price) ? (
+                        <View style={styles.optionDiscountRow}>
+                          <Text style={styles.optionPriceOld}>
+                            {formatCurrency(svc?.originalPrice ?? svc?.price)}
+                          </Text>
+                          <Text style={styles.optionMetaStrong}>
+                            {formatCurrency(svc.discountedPrice)} • {svc.durationMinutes} دقيقة
+                          </Text>
+                          <View style={styles.discountBadgeInline}>
+                            <Text style={styles.discountBadgeInlineText}>
+                              خصم {Math.round(Number(svc.discountPercent) || 0)}%
+                            </Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={styles.optionMeta}>
+                          {formatCurrency(svc.price)} • {svc.durationMinutes} دقيقة
+                        </Text>
+                      )}
                     </View>
                     {active ? (
-                      <Feather name="check-circle" size={18} color="#0EA5E9" />
+                      <Feather name="check-circle" size={18} color={colors.primary} />
                     ) : (
-                      <Feather name="circle" size={18} color="#9CA3AF" />
+                      <Feather name="circle" size={18} color={colors.placeholder} />
                     )}
                   </TouchableOpacity>
                 );
@@ -512,7 +651,12 @@ export default function BookAppointmentScreen() {
           {selectedServicePrice !== null ? (
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>السعر</Text>
-              <Text style={styles.priceValue}>{formatCurrency(selectedServicePrice)}</Text>
+              <View style={styles.priceValuesWrap}>
+                {selectedServiceHasDiscount ? (
+                  <Text style={styles.priceValueOld}>{formatCurrency(selectedServiceOriginalPrice)}</Text>
+                ) : null}
+                <Text style={styles.priceValue}>{formatCurrency(selectedServicePrice)}</Text>
+              </View>
             </View>
           ) : null}
         </View>
@@ -580,7 +724,7 @@ export default function BookAppointmentScreen() {
                       style={[
                         styles.timeChipText,
                         isActive && styles.timeChipTextActive,
-                        !isActive && { color: '#111', fontWeight: 'bold' }
+                        !isActive && { color: colors.text, fontWeight: 'bold' }
                       ]}
                     >
                       {slot.label}
@@ -625,272 +769,317 @@ export default function BookAppointmentScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#fff",
-    writingDirection: "rtl",
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 32,
-    writingDirection: "rtl",
-  },
-  header: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  title: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111827",
-    writingDirection: "rtl",
-  },
-  doctorCard: {
-    backgroundColor: "#F9FAFB",
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 16,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: "#DBEAFE",
-  },
-  doctorAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    marginRight: 12,
-    backgroundColor: "#DBEAFE",
-  },
-  doctorInfo: {
-    marginHorizontal: 12,
-  },
-  doctorName: {
-    fontSize: 16,
-    fontWeight: "600",
-    textAlign: "right",
-  },
-  doctorRole: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "right",
-  },
-  specialtyText: {
-    fontSize: 13,
-    color: "#111827",
-    textAlign: "right",
-  },
-  section: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
-    marginBottom: 16,
-  },
-  helperText: {
-    marginTop: 10,
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  optionRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 10,
-  },
-  optionRowActive: {
-    borderColor: "#0EA5E9",
-    backgroundColor: "#EFF6FF",
-  },
-  optionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  optionTitleActive: {
-    color: "#0EA5E9",
-  },
-  optionMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    color: "#6B7280",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  priceRow: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  priceLabel: {
-    fontSize: 13,
-    color: "#6B7280",
-    fontWeight: "600",
-  },
-  priceValue: {
-    fontSize: 14,
-    color: "#111827",
-    fontWeight: "800",
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  emptyStateText: {
-    marginTop: 12,
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-  blockedNotice: {
-    marginTop: 6,
-    fontSize: 11,
-    color: "#6B7280",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  dateRow: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    marginTop: 12,
-  },
-  dateChip: {
-    minWidth: 72,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "transparent",
-    marginLeft: 10,
-    marginBottom: 10,
-  },
-  dateChipActive: {
-    backgroundColor: "#0EA5E9",
-    borderColor: "#0EA5E9",
-  },
-  dateChipDay: {
-    fontSize: 11,
-    color: "#4B5563",
-    writingDirection: "rtl",
-  },
-  dateChipDayActive: {
-    color: "#fff",
-  },
-  dateChipDate: {
-    fontSize: 16,
-    fontWeight: "600",
-    writingDirection: "rtl",
-  },
-  dateChipDateActive: {
-    color: "#fff",
-  },
-  timeRow: {
-    flexDirection: "row",
-    paddingVertical: 12,
-  },
-  timeChip: {
-    minWidth: 90,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    marginRight: 12,
-  },
-  timeChipActive: {
-    backgroundColor: "#0EA5E9",
-    borderColor: "#0EA5E9",
-  },
-  timeChipText: {
-    fontSize: 15,
-    color: "#374151",
-    writingDirection: "rtl",
-  },
-  timeChipTextActive: {
-    color: "#fff",
-  },
-  primaryButton: {
-    backgroundColor: "#0EA5E9",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  secondaryButton: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#0EA5E9",
-    borderRadius: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
-    backgroundColor: "#F8FAFC",
-  },
-  secondaryButtonIcon: {
-    marginLeft: 8,
-  },
-  secondaryButtonText: {
-    color: "#0EA5E9",
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-  primaryButtonDisabled: {
-    backgroundColor: "#BAE6FD",
-  },
-  primaryButtonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonSpinner: {
-    marginRight: 6,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-});
+const createStyles = (colors) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+      writingDirection: "rtl",
+    },
+    content: {
+      padding: 20,
+      paddingBottom: 32,
+      writingDirection: "rtl",
+    },
+    header: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      marginBottom: 16,
+    },
+    backButton: {
+      width: 44,
+      height: 44,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    title: {
+      flex: 1,
+      textAlign: "center",
+      fontSize: 20,
+      fontWeight: "700",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    doctorCard: {
+      backgroundColor: colors.surfaceAlt,
+      padding: 16,
+      borderRadius: 16,
+      marginBottom: 16,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    avatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: colors.primary + "20",
+    },
+    doctorAvatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 16,
+      marginRight: 12,
+      backgroundColor: colors.primary + "20",
+    },
+    doctorInfo: {
+      marginHorizontal: 12,
+    },
+    doctorName: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "right",
+    },
+    doctorRole: {
+      fontSize: 14,
+      color: colors.textMuted,
+      textAlign: "right",
+    },
+    specialtyText: {
+      fontSize: 13,
+      color: colors.text,
+      textAlign: "right",
+    },
+    section: {
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 16,
+    },
+    helperText: {
+      marginTop: 10,
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    optionRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 10,
+    },
+    optionRowActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary + "12",
+    },
+    optionTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    optionTitleActive: {
+      color: colors.primary,
+    },
+    optionMeta: {
+      marginTop: 4,
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    optionMetaStrong: {
+      marginTop: 4,
+      fontSize: 12,
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+      fontWeight: "800",
+    },
+    optionDiscountRow: {
+      marginTop: 4,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+    },
+    optionPriceOld: {
+      fontSize: 11,
+      color: colors.textMuted,
+      textDecorationLine: "line-through",
+    },
+    discountBadgeInline: {
+      borderWidth: 1,
+      borderColor: colors.danger,
+      borderRadius: 999,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    discountBadgeInlineText: {
+      color: colors.danger,
+      fontSize: 10,
+      fontWeight: "800",
+      writingDirection: "rtl",
+    },
+    priceRow: {
+      marginTop: 10,
+      paddingTop: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    priceLabel: {
+      fontSize: 13,
+      color: colors.textMuted,
+      fontWeight: "600",
+    },
+    priceValue: {
+      fontSize: 14,
+      color: colors.text,
+      fontWeight: "800",
+    },
+    priceValuesWrap: {
+      alignItems: "flex-end",
+      gap: 2,
+    },
+    priceValueOld: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textDecorationLine: "line-through",
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    emptyStateText: {
+      marginTop: 12,
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+    blockedNotice: {
+      marginTop: 6,
+      fontSize: 11,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    dateRow: {
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      marginTop: 12,
+    },
+    dateChip: {
+      minWidth: 72,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceAlt,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginLeft: 10,
+      marginBottom: 10,
+    },
+    dateChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    dateChipDay: {
+      fontSize: 11,
+      color: colors.textMuted,
+      writingDirection: "rtl",
+    },
+    dateChipDayActive: {
+      color: "#fff",
+    },
+    dateChipDate: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    dateChipDateActive: {
+      color: "#fff",
+    },
+    timeRow: {
+      flexDirection: "row",
+      paddingVertical: 12,
+    },
+    timeChip: {
+      minWidth: 90,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      marginRight: 12,
+    },
+    timeChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    timeChipText: {
+      fontSize: 15,
+      color: colors.textMuted,
+      writingDirection: "rtl",
+    },
+    timeChipTextActive: {
+      color: "#fff",
+    },
+    primaryButton: {
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 14,
+      alignItems: "center",
+    },
+    secondaryButton: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: 14,
+      paddingVertical: 12,
+      marginBottom: 12,
+      backgroundColor: colors.surface,
+    },
+    secondaryButtonIcon: {
+      marginLeft: 8,
+    },
+    secondaryButtonText: {
+      color: colors.primary,
+      fontSize: 15,
+      fontWeight: "600",
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+    primaryButtonDisabled: {
+      opacity: 0.5,
+    },
+    primaryButtonContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    buttonSpinner: {
+      marginRight: 6,
+    },
+    primaryButtonText: {
+      color: "#fff",
+      fontSize: 16,
+      fontWeight: "600",
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+  });

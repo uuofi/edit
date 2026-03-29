@@ -1362,6 +1362,13 @@ export default function ProviderAppointmentsScreen() {
 
         {visibleAppointments.map((appointment) => {
           const isCenterBooking = appointment?.bookingSource === "center";
+          const centerBookingName = String(
+            appointment?.centerName ||
+              appointment?.medicalCenterName ||
+              appointment?.medicalCenter?.name ||
+              appointment?.center?.name ||
+              ""
+          ).trim();
           const statusColor = {
             confirmed: colors.success,
             pending: colors.warning,
@@ -1414,6 +1421,18 @@ export default function ProviderAppointmentsScreen() {
                 </View>
               </View>
 
+              {isCenterBooking ? (
+                <View style={styles.sourceRow}>
+                  <View style={styles.sourceHeader}>
+                    <Feather name="map-pin" size={13} color={colors.primary} />
+                    <Text style={styles.sourceLabel}>مصدر الحجز</Text>
+                  </View>
+                  <Text style={styles.sourceValue}>
+                    {centerBookingName ? `من مركز: ${centerBookingName}` : "من مركز طبي"}
+                  </Text>
+                </View>
+              ) : null}
+
               {appointment.notes ? (
                 <View style={styles.notesRow}>
                   <Text style={styles.notesLabel}>ملاحظات</Text>
@@ -1430,6 +1449,9 @@ export default function ProviderAppointmentsScreen() {
                       {appointment.actionBySecretary.action === "accepted" ? "قُبل بواسطة" :
                        appointment.actionBySecretary.action === "created" ? "أُنشئ بواسطة" :
                        appointment.actionBySecretary.action === "completed" ? "أُكمل بواسطة" :
+                       appointment.actionBySecretary.action === "cancelled" ? "أُلغي بواسطة" :
+                       appointment.actionBySecretary.action === "rejected" ? "رُفض بواسطة" :
+                       appointment.actionBySecretary.action === "assigned" ? "عُيّن بواسطة" :
                        appointment.actionBySecretary.action === "rescheduled" ? "أُعيد جدولته بواسطة" :
                        "بواسطة"}
                     </Text>
@@ -2547,6 +2569,35 @@ const createStyles = (colors, isDark) => {
       color: colors.text,
       textAlign: "right",
       writingDirection: "rtl",
+    },
+    sourceRow: {
+      marginTop: 10,
+      borderRadius: 10,
+      backgroundColor: primaryTint,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 4,
+    },
+    sourceHeader: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 4,
+    },
+    sourceLabel: {
+      fontSize: 12,
+      color: colors.primary,
+      textAlign: "right",
+      writingDirection: "rtl",
+      fontWeight: "700",
+    },
+    sourceValue: {
+      fontSize: 13,
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+      fontWeight: "600",
     },
     manageRow: {
       flexDirection: "row",

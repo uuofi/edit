@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import {
   NavigationContainer,
@@ -16,7 +17,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from "@react-navigation/drawer";
 import BookingSummaryScreen from "./screens/booking-summary";
-import ChatScreen from "./screens/chat";
 import DoctorDetailsScreen from "./screens/doctor-detalis";
 import DoctorAppointmentsScreen from "./screens/doctor-appointments";
 import ProviderProfileScreen from "./screens/provider-profile";
@@ -27,15 +27,27 @@ import ProviderReportsScreen from "./screens/provider-reports";
 import PatientsScreen from "./screens/patients";
 import ScheduleManagementScreen from "./screens/schedule-management";
 import ProviderSettingsScreen from "./screens/provider-settings";
+import SecretaryManagementScreen from "./screens/secretary-management";
+import ProviderInventoryScreen from "./screens/provider-inventory";
 import LocationPickerScreen from "./screens/location-picker";
 // ...existing code...
+import LabDashboardScreen   from "./screens/lab-dashboard";
+import LabOrdersScreen      from "./screens/lab-orders";
+import LabResultEntryScreen from "./screens/lab-result-entry";
+import LabTestsScreen       from "./screens/lab-tests";
+import LabPatientsScreen    from "./screens/lab-patients";
+import LabReportsScreen     from "./screens/lab-reports";
+import LabProfileScreen     from "./screens/lab-profile";
+import LabSignupScreen      from "./screens/lab-signup";
 import {
+  normalizeUserRole,
   getUserRole,
   getToken,
-  registerForPushNotificationsAsync,
   getExpoPushToken,
-  registerPushTokens
+  registerExpoPushToken,
+  acceptDoctorAppointment,
 } from "./lib/api";
+import { registerForPushNotificationsAsync } from "./lib/pushNotifications";
 import RoleSelectionScreen from "./screens/role-selection";
 import LoginScreen from "./screens/login";
 import SignupScreen from "./screens/signup";
@@ -55,51 +67,78 @@ import ActivityLogScreen from "./screens/activity-log";
 import MyAppointmentsScreen from "./screens/my-appointments";
 import AppointmentDetailsScreen from "./screens/appointment-details";
 import BookAppointmentScreen from "./screens/book-appointment";
+import CentersMiniScreen from "./screens/centers-mini";
+import CenterDoctorsScreen from "./screens/center-doctors";
 import { ThemeProvider } from "./lib/ThemeProvider";
-import { SafeAreaView, SafeAreaProvider } from "react-native-safe-area-context";
+import { CenterProvider } from "./lib/centerContext";
+import useOTAUpdates from "./lib/useOTAUpdates";
+import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
-import { saveExpoPushTokenToFirebase } from './lib/firebase';
 
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const ProviderDrawer = createDrawerNavigator();
+const getAndroidBottomSpacing = (insetBottom = 0) =>
+  Platform.OS === "android" ? Math.max(35, insetBottom) : 0;
 
 const withRoleGuard = (Component, allowedRoles = []) => {
   return function RoleGuardedScreen(props) {
     const [role, setRole] = useState(null);
+    const [timedOut, setTimedOut] = useState(false);
     const { colors } = useAppTheme();
 
     useEffect(() => {
       let active = true;
       getUserRole()
         .then((r) => {
-          if (active) setRole(r);
+          if (active) setRole(normalizeUserRole(r));
         })
         .catch(() => {
           if (active) setRole(null);
         });
+      // Safety: if role never resolves, redirect to login after 5s.
+      const timer = setTimeout(() => {
+        if (active) setTimedOut(true);
+      }, 5000);
       return () => {
         active = false;
+        clearTimeout(timer);
       };
     }, []);
 
     useEffect(() => {
+      if (timedOut && !role) {
+        console.warn("[RoleGuard] Timed out waiting for role, redirecting to login.");
+        props.navigation.reset({ index: 0, routes: [{ name: "RoleSelection" }] });
+      }
+    }, [timedOut, role, props.navigation]);
+
+    useEffect(() => {
       if (!role) return;
+
+      const isKnownRole = role === "doctor" || role === "patient" || role === "secretary" || role === "lab";
+      if (!isKnownRole) {
+        props.navigation.reset({ index: 0, routes: [{ name: "RoleSelection" }] });
+        return;
+      }
+
       if (!allowedRoles.length) return;
       if (allowedRoles.includes(role)) return;
 
       // Redirect to the correct root based on role.
-      const destination = role === "doctor" ? "ProviderTabs" : "MainTabs";
+      const destination = (role === "doctor" || role === "secretary") ? "ProviderTabs" : role === "lab" ? "LabTabs" : "MainTabs";
+      if (props.route?.name === destination) return;
       props.navigation.reset({
         index: 0,
         routes: [{ name: destination }],
       });
-    }, [role, props.navigation]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [role]);
 
     if (!role) {
       return (
@@ -124,8 +163,42 @@ const withRoleGuard = (Component, allowedRoles = []) => {
   };
 };
 
-const PatientOnlyMainTabs = withRoleGuard(MainTabsNavigator, ["patient"]);
-const DoctorOnlyProviderTabs = withRoleGuard(ProviderTabsNavigator, ["doctor"]);
+const PatientOnlyMainTabs    = withRoleGuard(MainTabsNavigator,    ["patient"]);
+const DoctorOnlyProviderTabs = withRoleGuard(ProviderTabsNavigator, ["doctor", "secretary"]);
+const LabOnlyTabs            = withRoleGuard(LabTabsNavigator,      ["lab"]);
+
+// Pre-create guarded screens at module scope to keep stable component
+// references (avoids unmount/remount on every parent re-render).
+const GuardedMyAppointments = withRoleGuard(MyAppointmentsScreen, ["patient"]);
+const GuardedAppointmentDetails = withRoleGuard(AppointmentDetailsScreen, ["patient"]);
+const GuardedBookAppointment = withRoleGuard(BookAppointmentScreen, ["patient"]);
+const GuardedBookingSummary = withRoleGuard(BookingSummaryScreen, ["patient"]);
+const GuardedSpecialty = withRoleGuard(SpecialtyScreen, ["patient"]);
+const GuardedDoctorDetails = withRoleGuard(DoctorDetailsScreen, ["patient"]);
+const GuardedDoctorAppointments = withRoleGuard(DoctorAppointmentsScreen, ["doctor", "secretary"]);
+const GuardedProviderDashboard = withRoleGuard(ProviderProfileScreen, ["doctor", "secretary"]);
+const GuardedProviderProfileEdit = withRoleGuard(ProviderProfileEditScreen, ["doctor"]);
+const GuardedProviderServices = withRoleGuard(ProviderServicesScreen, ["doctor"]);
+const GuardedProviderAppointments = withRoleGuard(ProviderAppointmentsScreen, ["doctor", "secretary"]);
+const GuardedScheduleManagement = withRoleGuard(ScheduleManagementScreen, ["doctor"]);
+const GuardedPersonalInfo = withRoleGuard(PersonalInfoScreen, ["patient"]);
+const GuardedMedicalRecords = withRoleGuard(MedicalRecordsScreen, ["patient"]);
+const GuardedProfileSettings = withRoleGuard(ProfileSettingsScreen, ["patient"]);
+const GuardedChangePassword = withRoleGuard(ChangePasswordScreen, ["patient", "doctor", "secretary"]);
+const GuardedDeleteAccount = withRoleGuard(DeleteAccountScreen, ["patient", "doctor", "secretary"]);
+const GuardedActivityLog = withRoleGuard(ActivityLogScreen, ["patient", "doctor", "secretary"]);
+const GuardedSupport = withRoleGuard(SupportScreen, ["patient", "doctor", "secretary"]);
+const GuardedProviderInventory = withRoleGuard(ProviderInventoryScreen, ["doctor", "secretary"]);
+const GuardedCentersMini = withRoleGuard(CentersMiniScreen, ["patient"]);
+const GuardedCenterDoctors = withRoleGuard(CenterDoctorsScreen, ["patient"]);
+
+// Lab guarded screens
+const GuardedLabOrders      = withRoleGuard(LabOrdersScreen,      ["lab"]);
+const GuardedLabResultEntry = withRoleGuard(LabResultEntryScreen, ["lab"]);
+const GuardedLabTests       = withRoleGuard(LabTestsScreen,       ["lab"]);
+const GuardedLabPatients    = withRoleGuard(LabPatientsScreen,    ["lab"]);
+const GuardedLabReports     = withRoleGuard(LabReportsScreen,     ["lab"]);
+const GuardedLabProfile     = withRoleGuard(LabProfileScreen,     ["lab"]);
 
 // 🔀 ref عشان نقدر نعمل navigate من برا الكومبوننت (من لسنر الإشعار)
 export const navigationRef = createNavigationContainerRef();
@@ -133,11 +206,33 @@ export const navigationRef = createNavigationContainerRef();
 // استقبال الإشعارات في المقدمة والخلفية
 import * as Notifications from 'expo-notifications';
 
+// إنشاء قناة الإشعارات للأندرويد 8+ (مطلوب وإلا الإشعارات ما توصل)
+if (Platform.OS === "android") {
+  Notifications.setNotificationChannelAsync("default", {
+    name: "إشعارات Medicare",
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#38BDF8",
+    sound: "default",
+  });
+}
+
+// تصنيف إشعار للحجوزات الجديدة للطبيب مع زر قبول مباشر من نفس الإشعار
+Notifications.setNotificationCategoryAsync("DOCTOR_APPOINTMENT_ACTIONS", [
+  {
+    identifier: "ACCEPT_APPOINTMENT",
+    buttonTitle: "قبول الحجز",
+    options: {
+      opensAppToForeground: true,
+    },
+  },
+]);
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
   }),
 });
 
@@ -149,17 +244,23 @@ Notifications.addNotificationReceivedListener((notification) => {
 
 function MainTabsNavigator() {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const androidBottomSpacing = getAndroidBottomSpacing(insets.bottom);
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        sceneContainerStyle: { backgroundColor: colors.background },
+        sceneContainerStyle: {
+          backgroundColor: colors.background,
+          paddingBottom: androidBottomSpacing,
+        },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
-          height: 60,
+          height: 60 + androidBottomSpacing,
+          paddingBottom: androidBottomSpacing,
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -203,6 +304,8 @@ function MainTabsNavigator() {
 
 function ProviderTabsNavigator() {
   const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const androidBottomSpacing = getAndroidBottomSpacing(insets.bottom);
   return (
     <ProviderDrawer.Navigator
       initialRouteName="ProviderAppointmentsTab"
@@ -210,7 +313,10 @@ function ProviderTabsNavigator() {
       screenOptions={{
         headerShown: false,
         drawerType: "front",
-        sceneContainerStyle: { backgroundColor: colors.background },
+        sceneContainerStyle: {
+          backgroundColor: colors.background,
+          paddingBottom: androidBottomSpacing,
+        },
         drawerPosition: "right",
         overlayColor: colors.overlay,
         drawerActiveTintColor: colors.primary,
@@ -262,9 +368,19 @@ function ProviderTabsNavigator() {
         options={{ title: "إدارة الخدمات" }}
       />
       <ProviderDrawer.Screen
+        name="SecretaryManagementTab"
+        component={SecretaryManagementScreen}
+        options={{ title: "الموظفين" }}
+      />
+      <ProviderDrawer.Screen
         name="ProviderSettingsTab"
         component={ProviderSettingsScreen}
         options={{ title: "الإعدادات" }}
+      />
+      <ProviderDrawer.Screen
+        name="ProviderInventoryTab"
+        component={GuardedProviderInventory}
+        options={{ title: "المخزن" }}
       />
       <ProviderDrawer.Screen
         name="ProviderProfileTab"
@@ -290,12 +406,57 @@ function ProviderDrawerContent(props) {
   );
 }
 
+// ─────────────────────────  Lab Tab Navigator  ─────────────────────────────
+function LabTabsNavigator() {
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const androidBottomSpacing = getAndroidBottomSpacing(insets.bottom);
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        sceneContainerStyle: { backgroundColor: colors.background, paddingBottom: androidBottomSpacing },
+        tabBarActiveTintColor:   "#0D9488",
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height: 60 + androidBottomSpacing,
+          paddingBottom: androidBottomSpacing,
+        },
+        tabBarLabelStyle: { fontSize: 11 },
+        tabBarIcon: ({ color, size }) => {
+          const iconMap = {
+            LabDashTab:     "grid",
+            LabOrdersTab:   "clipboard",
+            LabTestsTab:    "activity",
+            LabPatientsTab: "users",
+            LabProfileTab:  "settings",
+          };
+          return <Feather name={iconMap[route.name] || "circle"} color={color} size={size} />;
+        },
+      })}
+    >
+      <Tab.Screen name="LabDashTab"     component={LabDashboardScreen} options={{ title: "الرئيسية" }} />
+      <Tab.Screen name="LabOrdersTab"   component={LabOrdersScreen}    options={{ title: "الطلبات" }} />
+      <Tab.Screen name="LabTestsTab"    component={LabTestsScreen}     options={{ title: "الفحوصات" }} />
+      <Tab.Screen name="LabPatientsTab" component={LabPatientsScreen}  options={{ title: "المرضى" }} />
+      <Tab.Screen name="LabProfileTab"  component={LabProfileScreen}   options={{ title: "الإعدادات" }} />
+    </Tab.Navigator>
+  );
+}
+
 // NOTE: push token registration helper lives in ./lib/pushNotifications
 
 function AppInner() {
   const [initialRoute, setInitialRoute] = useState(null);
   const [booting, setBooting] = useState(true);
   const { colors, isDark, navigationTheme } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const androidBottomSpacing = getAndroidBottomSpacing(insets.bottom);
+
+  // OTA Updates — checks automatically on launch & foreground
+  useOTAUpdates();
 
   // RTL
   useEffect(() => {
@@ -330,37 +491,17 @@ function AppInner() {
         const [token, role] = await Promise.all([getToken(), getUserRole()]);
         if (!active) return;
 
-        // Expo Push Token
-        let expoPushToken;
-        try {
-          expoPushToken = await registerForPushNotificationsAsync();
-        } catch (err) {
-          console.log('[Expo] Error getting Expo token:', err);
-        }
-
         if (token) {
-          const destination = role === "doctor" ? "ProviderTabs" : "MainTabs";
+          const normalizedRole = normalizeUserRole(role);
+          const destination =
+            (normalizedRole === "doctor" || normalizedRole === "secretary")
+              ? "ProviderTabs"
+              : normalizedRole === "lab"
+              ? "LabTabs"
+              : normalizedRole === "patient"
+              ? "MainTabs"
+              : "RoleSelection";
           setInitialRoute(destination);
-
-          // سجل التوكن وارسله للسيرفر و Firebase
-          if (expoPushToken) {
-            const storedExpo = await getExpoPushToken();
-            if (String(storedExpo || "") !== String(expoPushToken || "")) {
-              try {
-                // حفظ التوكن في السيرفر
-                await registerPushTokens({ expoPushToken });
-                // حفظ التوكن في فايربيس مع الدور
-                await saveExpoPushTokenToFirebase(token, expoPushToken, role);
-                console.log("[Expo] Expo token saved to server & Firebase.");
-              } catch (err) {
-                console.log("[Expo] Error saving Expo token:", err);
-              }
-            } else {
-              console.log("[Expo] Expo token is same as stored, not sending to server.");
-            }
-          } else {
-            console.log("[Expo] No Expo push token generated, nothing to send.");
-          }
         } else {
           setInitialRoute("RoleSelection");
         }
@@ -374,13 +515,59 @@ function AppInner() {
           setBooting(false);
         }
       }
+
+      // Push token registration runs AFTER navigation is set (non-blocking).
+      if (!active) return;
+      try {
+        const [token, role] = await Promise.all([getToken(), getUserRole()]);
+        if (!token || !active) return;
+        console.log("[App] User logged in, starting push registration...");
+
+        let expoPushToken;
+        try {
+          const result = await registerForPushNotificationsAsync({ silent: true });
+          expoPushToken = result?.expoPushToken;
+          console.log("[App] Push token result:", expoPushToken ? "GOT TOKEN" : "NO TOKEN (permission denied or device issue)");
+        } catch (err) {
+          console.log('[App] Error getting Expo token:', err?.message || err);
+        }
+
+        if (expoPushToken && active) {
+          try {
+            await registerExpoPushToken(expoPushToken);
+            console.log("[App] ✅ Push token registered with backend");
+          } catch (err) {
+            console.log("[App] ❌ Error registering push token with backend:", err?.message || err);
+          }
+        } else if (!expoPushToken) {
+          console.log("[App] ⚠️ No push token obtained — notifications will NOT work for this user");
+        }
+      } catch (pushError) {
+        console.log("[App] Background push registration failed:", pushError?.message || pushError);
+      }
     })();
 
     // Expo: handle notification response (app opened from notification)
-    const notificationResponseListener = Notifications.addNotificationResponseReceivedListener(response => {
+    const notificationResponseListener = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response?.notification?.request?.content?.data || {};
       const { type, appointmentId, role } = data;
+      const actionId = response?.actionIdentifier;
       console.log('[PushDebug][Expo] Notification opened:', data);
+
+      if (
+        actionId === "ACCEPT_APPOINTMENT" &&
+        role === "doctor" &&
+        type === "appointment_created" &&
+        appointmentId
+      ) {
+        try {
+          await acceptDoctorAppointment(String(appointmentId));
+          console.log("[PushAction] Appointment accepted from notification:", appointmentId);
+        } catch (err) {
+          console.log("[PushAction] Accept from notification failed:", err?.message || err);
+        }
+      }
+
       if (!navigationRef.isReady()) return;
       if (role === "patient" && type === "appointment_confirmed") {
         navigationRef.navigate("MyAppointments");
@@ -407,6 +594,7 @@ function AppInner() {
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: colors.background,
+            paddingBottom: androidBottomSpacing,
           }}
         >
           <ActivityIndicator size="large" color={colors.primary} />
@@ -420,7 +608,13 @@ function AppInner() {
 
   return (
     <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingBottom: androidBottomSpacing,
+        }}
+      >
         <NavigationContainer ref={navigationRef} theme={navigationTheme}>
           <StatusBar
             barStyle={isDark ? "light-content" : "dark-content"}
@@ -430,7 +624,11 @@ function AppInner() {
           <Stack.Navigator
             screenOptions={{
               headerShown: false,
-              contentStyle: { direction: "rtl", backgroundColor: colors.background },
+              contentStyle: {
+                direction: "rtl",
+                backgroundColor: colors.background,
+                paddingBottom: androidBottomSpacing,
+              },
             }}
             initialRouteName={initialRoute}
           >
@@ -457,84 +655,101 @@ function AppInner() {
             <Stack.Screen name="MainTabs" component={PatientOnlyMainTabs} />
             <Stack.Screen
               name="MyAppointments"
-              component={withRoleGuard(MyAppointmentsScreen, ["patient"])}
+              component={GuardedMyAppointments}
             />
             <Stack.Screen
               name="AppointmentDetails"
-              component={withRoleGuard(AppointmentDetailsScreen, ["patient"])}
+              component={GuardedAppointmentDetails}
             />
-            <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen
               name="BookAppointment"
-              component={withRoleGuard(BookAppointmentScreen, ["patient"])}
+              component={GuardedBookAppointment}
             />
             <Stack.Screen
               name="BookingSummary"
-              component={withRoleGuard(BookingSummaryScreen, ["patient"])}
+              component={GuardedBookingSummary}
             />
             <Stack.Screen
               name="Specialty"
-              component={withRoleGuard(SpecialtyScreen, ["patient"])}
+              component={GuardedSpecialty}
             />
             <Stack.Screen
               name="DoctorDetails"
-              component={withRoleGuard(DoctorDetailsScreen, ["patient"])}
+              component={GuardedDoctorDetails}
             />
             <Stack.Screen
               name="DoctorAppointments"
-              component={withRoleGuard(DoctorAppointmentsScreen, ["doctor"])}
+              component={GuardedDoctorAppointments}
             />
             <Stack.Screen
               name="ProviderDashboard"
-              component={withRoleGuard(ProviderProfileScreen, ["doctor"])}
+              component={GuardedProviderDashboard}
             />
             <Stack.Screen name="ProviderTabs" component={DoctorOnlyProviderTabs} />
             <Stack.Screen
               name="ProviderProfileEdit"
-              component={withRoleGuard(ProviderProfileEditScreen, ["doctor"])}
+              component={GuardedProviderProfileEdit}
             />
             <Stack.Screen
               name="ProviderServices"
-              component={withRoleGuard(ProviderServicesScreen, ["doctor"])}
+              component={GuardedProviderServices}
             />
             <Stack.Screen
               name="ProviderAppointments"
-              component={withRoleGuard(ProviderAppointmentsScreen, ["doctor"])}
+              component={GuardedProviderAppointments}
             />
             <Stack.Screen
               name="ScheduleManagement"
-              component={withRoleGuard(ScheduleManagementScreen, ["doctor"])}
+              component={GuardedScheduleManagement}
             />
             <Stack.Screen
               name="PersonalInfo"
-              component={withRoleGuard(PersonalInfoScreen, ["patient"])}
+              component={GuardedPersonalInfo}
             />
             <Stack.Screen
               name="MedicalRecords"
-              component={withRoleGuard(MedicalRecordsScreen, ["patient"])}
+              component={GuardedMedicalRecords}
             />
             <Stack.Screen
               name="ProfileSettings"
-              component={withRoleGuard(ProfileSettingsScreen, ["patient"])}
+              component={GuardedProfileSettings}
             />
             <Stack.Screen
               name="ChangePassword"
-              component={withRoleGuard(ChangePasswordScreen, ["patient", "doctor"])}
+              component={GuardedChangePassword}
             />
             <Stack.Screen
               name="DeleteAccount"
-              component={withRoleGuard(DeleteAccountScreen, ["patient", "doctor"])}
+              component={GuardedDeleteAccount}
             />
             <Stack.Screen
               name="ActivityLog"
-              component={withRoleGuard(ActivityLogScreen, ["patient", "doctor"])}
+              component={GuardedActivityLog}
             />
             <Stack.Screen
               name="Support"
-              component={withRoleGuard(SupportScreen, ["patient"])}
+              component={GuardedSupport}
+            />
+            <Stack.Screen
+              name="CentersMini"
+              component={GuardedCentersMini}
+            />
+            <Stack.Screen
+              name="CenterDoctors"
+              component={GuardedCenterDoctors}
             />
 
             <Stack.Screen name="LocationPicker" component={LocationPickerScreen} />
+
+            {/* ── Lab Screens ── */}
+            <Stack.Screen name="LabTabs"        component={LabOnlyTabs}          options={{ gestureEnabled: false }} />
+            <Stack.Screen name="LabOrders"      component={GuardedLabOrders} />
+            <Stack.Screen name="LabResultEntry" component={GuardedLabResultEntry} />
+            <Stack.Screen name="LabTests"       component={GuardedLabTests} />
+            <Stack.Screen name="LabPatients"    component={GuardedLabPatients} />
+            <Stack.Screen name="LabReports"     component={GuardedLabReports} />
+            <Stack.Screen name="LabProfile"     component={GuardedLabProfile} />
+            <Stack.Screen name="LabSignup"      component={LabSignupScreen}      options={{ gestureEnabled: false }} />
            
           </Stack.Navigator>
         </NavigationContainer>
@@ -545,8 +760,12 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppInner />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <CenterProvider>
+          <AppInner />
+        </CenterProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

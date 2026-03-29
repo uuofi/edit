@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { API_BASE_URL, saveToken, saveUserRole } from "../lib/api";
+import { API_BASE_URL, normalizeUserRole, saveToken, saveUserRole } from "../lib/api";
 import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import { useAppTheme } from "../lib/useTheme";
 
@@ -60,7 +60,7 @@ export default function VerifyEmailScreen() {
         return;
       }
 
-      const resolvedRole = data.user?.role || params.role || "patient";
+      const resolvedRole = normalizeUserRole(data.user?.role || params.role) || "patient";
       await saveUserRole(resolvedRole);
 
       // If backend does not return a token (e.g., doctor pending approval), do not proceed.
@@ -75,19 +75,23 @@ export default function VerifyEmailScreen() {
 
       await saveToken(data.token);
 
-      // 🔔 Register push token immediately after login
+      Alert.alert("نجاح", isLoginFlow ? "تم تسجيل الدخول" : "تم التحقق من الرقم");
+
+      // 🔔 Request push permission + register token BEFORE navigation
       try {
-        const api = await import("../lib/api");
+        console.log("[Verify] Starting push registration...");
         const push = await import("../lib/pushNotifications");
-        const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
+        const result = await push.registerForPushNotificationsAsync();
+        const expoPushToken = result?.expoPushToken;
+        console.log("[Verify] Push token result:", expoPushToken ? "GOT TOKEN" : "NO TOKEN");
         if (expoPushToken) {
-          await api.registerPushTokens({ expoPushToken });
+          const api = await import("../lib/api");
+          await api.registerExpoPushToken(expoPushToken);
+          console.log("[Verify] ✅ Push token registered with backend");
         }
       } catch (pushErr) {
-        console.log("Push registration after verify failed:", pushErr);
+        console.log("[Verify] Push registration error:", pushErr?.message || pushErr);
       }
-
-      Alert.alert("نجاح", isLoginFlow ? "تم تسجيل الدخول" : "تم التحقق من الرقم");
 
       const destination = resolvedRole === "doctor" ? "ProviderTabs" : "MainTabs";
       navigation.reset({ index: 0, routes: [{ name: destination }] });

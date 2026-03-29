@@ -7,13 +7,20 @@ import {
   StyleSheet,
   Alert,
   Image,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { STATUS_LABELS } from "../lib/constants/statusLabels";
-import { cancelAppointment, ApiError, getUserRole, fetchAppointment } from "../lib/api";
+import {
+  cancelAppointment,
+  ApiError,
+  getUserRole,
+  fetchAppointment,
+  rateAppointment,
+} from "../lib/api";
 import { logout } from "../lib/api";
 import { openInGoogleMaps } from "../lib/maps";
 import { useAppTheme } from "../lib/useTheme";
@@ -21,8 +28,8 @@ import { useAppTheme } from "../lib/useTheme";
 export default function AppointmentDetailsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const params =
     route.params && typeof route.params === "object" ? route.params : {};
 
@@ -70,6 +77,15 @@ export default function AppointmentDetailsScreen() {
   const avatarUrl =
     params.avatarUrl || params.doctorAvatar || params.imageUrl || "";
   const initialStatus = params.status || "pending";
+  const initialRatingScore = Number(params.patientRatingScore);
+  const initialRatingComment =
+    typeof params.patientRatingComment === "string" ? params.patientRatingComment : "";
+  const initialDoctorRatingAverage = Number(
+    params.ratingAverage ?? doctorProfile?.ratingAverage
+  );
+  const initialDoctorRatingCount = Number(
+    params.ratingCount ?? doctorProfile?.ratingCount
+  );
 
   const [qrSource, setQrSource] = useState(initialQrSource);
   const [qrPayload, setQrPayload] = useState(initialQrPayload);
@@ -78,6 +94,19 @@ export default function AppointmentDetailsScreen() {
   const [statusKey, setStatusKey] = useState(initialStatus);
   const [cancelling, setCancelling] = useState(false);
   const [userRole, setUserRole] = useState(null);
+  const [ratingScore, setRatingScore] = useState(
+    Number.isFinite(initialRatingScore) && initialRatingScore >= 1 && initialRatingScore <= 5
+      ? Math.round(initialRatingScore)
+      : 0
+  );
+  const [ratingComment, setRatingComment] = useState(initialRatingComment);
+  const [ratingLoading, setRatingLoading] = useState(false);
+  const [doctorRatingAverage, setDoctorRatingAverage] = useState(
+    Number.isFinite(initialDoctorRatingAverage) ? initialDoctorRatingAverage : 0
+  );
+  const [doctorRatingCount, setDoctorRatingCount] = useState(
+    Number.isFinite(initialDoctorRatingCount) ? initialDoctorRatingCount : 0
+  );
 
   // ====== Effects ======
   useEffect(() => {
@@ -106,6 +135,17 @@ export default function AppointmentDetailsScreen() {
         if (!mounted || !appt) return;
         if (appt.qrCode) setQrSource(appt.qrCode);
         if (appt.qrPayload) setQrPayload(appt.qrPayload);
+        const nextScore = Number(appt.patientRatingScore);
+        if (Number.isFinite(nextScore) && nextScore >= 1 && nextScore <= 5) {
+          setRatingScore(Math.round(nextScore));
+        }
+        if (typeof appt.patientRatingComment === "string") {
+          setRatingComment(appt.patientRatingComment);
+        }
+        const avg = Number(appt?.doctorProfile?.ratingAverage);
+        const count = Number(appt?.doctorProfile?.ratingCount);
+        if (Number.isFinite(avg)) setDoctorRatingAverage(avg);
+        if (Number.isFinite(count)) setDoctorRatingCount(count);
       } catch {
         // ignore (screen still works without QR)
       }
@@ -172,6 +212,34 @@ export default function AppointmentDetailsScreen() {
     ]);
   };
 
+  const canRateAppointment =
+    userRole === "patient" && statusKey === "completed" && !!appointmentId;
+
+  const submitRating = async () => {
+    if (!canRateAppointment) return;
+    if (!Number.isFinite(ratingScore) || ratingScore < 1 || ratingScore > 5) {
+      Alert.alert("التقييم", "يرجى اختيار عدد النجوم من 1 إلى 5.");
+      return;
+    }
+
+    setRatingLoading(true);
+    try {
+      const data = await rateAppointment(appointmentId, {
+        score: ratingScore,
+        comment: String(ratingComment || "").trim(),
+      });
+      const avg = Number(data?.doctorRating?.average);
+      const count = Number(data?.doctorRating?.count);
+      if (Number.isFinite(avg)) setDoctorRatingAverage(avg);
+      if (Number.isFinite(count)) setDoctorRatingCount(count);
+      Alert.alert("تم", "تم حفظ تقييمك بنجاح.");
+    } catch (err) {
+      Alert.alert("تعذر الحفظ", err?.message || "حدث خطأ أثناء حفظ التقييم");
+    } finally {
+      setRatingLoading(false);
+    }
+  };
+
   // ====== Render ======
   return (
     <SafeAreaView style={styles.screen}>
@@ -211,6 +279,11 @@ export default function AppointmentDetailsScreen() {
                 {statusText}
               </Text>
             </View>
+          </View>
+
+          <View style={styles.medicalBanner}>
+            <Feather name="activity" size={16} color={colors.primary} />
+            <Text style={styles.medicalBannerText}>ملف الموعد الطبي</Text>
           </View>
 
           {/* Minimal view when doctor حجز يدوي للمراجع */}
@@ -287,6 +360,14 @@ export default function AppointmentDetailsScreen() {
                       {doctorSpecialty}
                     </Text>
                     <View style={styles.locationRow}>
+                      <Feather name="star" size={14} color={colors.primary} />
+                      <Text style={styles.locationText}>
+                        {doctorRatingCount > 0
+                          ? `${Number(doctorRatingAverage || 0).toFixed(1)} (${doctorRatingCount} تقييم)`
+                          : "لا توجد تقييمات بعد"}
+                      </Text>
+                    </View>
+                    <View style={styles.locationRow}>
                       <Feather name="map-pin" size={14} color={colors.textMuted} />
                       <Text style={styles.locationText}>{location}</Text>
                     </View>
@@ -295,7 +376,7 @@ export default function AppointmentDetailsScreen() {
                       style={styles.openMapButton}
                       onPress={() => openInGoogleMaps({ latitude: locationLat, longitude: locationLng, address: location })}
                     >
-                      <Text style={styles.openMapButtonText}>فتح موقع العيادة في خرائط كوكل</Text>
+                      <Text style={styles.openMapButtonText}>فتح موقع العيادة في خرائط Google</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -399,6 +480,52 @@ export default function AppointmentDetailsScreen() {
                 <Text style={styles.bodyText}>{biographyText}</Text>
               </View>
 
+              {canRateAppointment ? (
+                <View style={styles.sectionGray}>
+                  <Text style={styles.sectionTitle}>تقييم الطبيب</Text>
+                  <View style={styles.ratingStarsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const selected = ratingScore >= star;
+                      return (
+                        <TouchableOpacity
+                          key={star}
+                          style={styles.ratingStarButton}
+                          onPress={() => setRatingScore(star)}
+                        >
+                          <Text
+                            style={[
+                              styles.ratingStar,
+                              selected && styles.ratingStarActive,
+                            ]}
+                          >
+                            {selected ? "★" : "☆"}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <TextInput
+                    style={styles.ratingCommentInput}
+                    placeholder="اكتب تعليقك (اختياري)"
+                    placeholderTextColor={colors.placeholder}
+                    value={ratingComment}
+                    onChangeText={setRatingComment}
+                    multiline
+                    maxLength={500}
+                    textAlign="right"
+                  />
+                  <TouchableOpacity
+                    style={[styles.ratingSubmitButton, ratingLoading && styles.ratingSubmitButtonDisabled]}
+                    onPress={submitRating}
+                    disabled={ratingLoading}
+                  >
+                    <Text style={styles.ratingSubmitText}>
+                      {ratingLoading ? "جارٍ الحفظ..." : "حفظ التقييم"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               {/* Payment */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>ملخص الدفع</Text>
@@ -457,23 +584,6 @@ export default function AppointmentDetailsScreen() {
           )}
 
           <TouchableOpacity
-            style={styles.chatButton}
-            onPress={() =>
-              navigation.navigate("Chat", {
-                doctorName,
-                appointmentId,
-                appointmentDate,
-                appointmentTime,
-                contactNumber,
-                avatarUrl,
-              })
-            }
-          >
-            <Feather name="message-circle" size={18} color={colors.primary} />
-            <Text style={styles.chatButtonText}>مراسلة الطبيب</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[
               styles.contactButton,
               !secretaryPhone && styles.contactButtonDisabled,
@@ -482,7 +592,7 @@ export default function AppointmentDetailsScreen() {
             onPress={handleCallSecretary}
           >
             <Feather name="phone" size={18} color="#fff" />
-            <Text style={styles.contactButtonText}>الاتصال بالسكرتير</Text>
+            <Text style={styles.contactButtonText}>الاتصال بالموظف</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -506,14 +616,14 @@ export default function AppointmentDetailsScreen() {
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: "row-reverse",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
@@ -527,58 +637,82 @@ const createStyles = (colors) =>
   headerTitle: {
     flex: 1,
     textAlign: "right",
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 19,
+    fontWeight: "700",
     color: colors.text,
     writingDirection: "rtl",
   },
   content: {
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingBottom: 28,
   },
   statusWrapper: {
     alignItems: "center",
-    marginTop: 16,
+    marginTop: 14,
   },
   statusBadge: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 999,
-    backgroundColor: "#DCFCE7",
+    backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#DCFCE7",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   statusText: {
     fontSize: 13,
-    color: "#16A34A",
+    fontWeight: "700",
+    color: colors.success,
+  },
+  medicalBanner: {
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "center",
+  },
+  medicalBannerText: {
+    fontSize: 12,
+    color: colors.text,
+    fontWeight: "600",
+    writingDirection: "rtl",
   },
   statusConfirmed: {
-    backgroundColor: "#DCFCE7",
+    backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#DCFCE7",
   },
   statusPending: {
-    backgroundColor: "#FEF3C7",
+    backgroundColor: isDark ? "rgba(251,191,36,0.15)" : "#FEF3C7",
   },
   statusCompleted: {
-    backgroundColor: "#E5E7EB",
+    backgroundColor: isDark ? colors.surfaceAlt : "#E5E7EB",
   },
   statusCancelled: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: isDark ? "rgba(248,113,113,0.15)" : "#FEE2E2",
   },
   statusTextConfirmed: {
-    color: "#16A34A",
+    color: colors.success,
   },
   statusTextPending: {
-    color: "#D97706",
+    color: colors.warning,
   },
   statusTextCompleted: {
-    color: "#4B5563",
+    color: colors.textMuted,
   },
   statusTextCancelled: {
-    color: "#B91C1C",
+    color: colors.danger,
   },
   doctorCard: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
     padding: 16,
     marginTop: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   doctorRow: {
     flexDirection: "row-reverse",
@@ -589,6 +723,8 @@ const createStyles = (colors) =>
     height: 64,
     borderRadius: 16,
     backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   avatarImage: {
     width: 64,
@@ -619,7 +755,7 @@ const createStyles = (colors) =>
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.primary,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
   },
   openMapButtonText: {
     color: colors.primary,
@@ -630,12 +766,19 @@ const createStyles = (colors) =>
   },
   section: {
     marginTop: 16,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
   },
   sectionGray: {
     marginTop: 16,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   sectionTitle: {
     fontSize: 16,
@@ -656,6 +799,8 @@ const createStyles = (colors) =>
     height: 40,
     borderRadius: 12,
     backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -676,6 +821,53 @@ const createStyles = (colors) =>
     fontSize: 14,
     color: colors.textMuted,
     textAlign: "right",
+    writingDirection: "rtl",
+  },
+  ratingStarsRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  ratingStarButton: {
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  ratingStar: {
+    fontSize: 30,
+    color: colors.textMuted,
+  },
+  ratingStarActive: {
+    color: colors.primary,
+  },
+  ratingCommentInput: {
+    minHeight: 90,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.text,
+    textAlignVertical: "top",
+    writingDirection: "rtl",
+  },
+  ratingSubmitButton: {
+    marginTop: 10,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: "center",
+    backgroundColor: colors.primary,
+  },
+  ratingSubmitButtonDisabled: {
+    opacity: 0.7,
+  },
+  ratingSubmitText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
     writingDirection: "rtl",
   },
   summaryRow: {
@@ -717,6 +909,11 @@ const createStyles = (colors) =>
   qrBlock: {
     marginTop: 12,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    paddingVertical: 12,
   },
   qrCaption: {
     marginTop: 8,
@@ -735,23 +932,6 @@ const createStyles = (colors) =>
     borderTopColor: colors.border,
     padding: 16,
     backgroundColor: colors.surface,
-  },
-  chatButton: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    paddingVertical: 12,
-    marginBottom: 8,
-  },
-  chatButtonText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "right",
-    writingDirection: "rtl",
   },
   contactButton: {
     flexDirection: "row-reverse",
@@ -775,13 +955,13 @@ const createStyles = (colors) =>
   },
   cancelButton: {
     borderWidth: 1,
-    borderColor: "#DC2626",
+    borderColor: colors.danger,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: "center",
   },
   cancelButtonText: {
-    color: "#DC2626",
+    color: colors.danger,
     fontSize: 15,
     fontWeight: "500",
     textAlign: "center",

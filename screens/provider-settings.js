@@ -16,6 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { logout, logoutAllDevices } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 import { useThemePreference } from "../lib/ThemeProvider";
+import useOTAUpdates from "../lib/useOTAUpdates";
 
 
 export default function ProviderSettingsScreen() {
@@ -23,6 +24,7 @@ export default function ProviderSettingsScreen() {
   const [busy, setBusy] = useState(false);
   const { colors, isDark } = useAppTheme();
   const pref = useThemePreference();
+  const { isChecking, isDownloading, checkManually } = useOTAUpdates();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const extra =
@@ -77,6 +79,9 @@ export default function ProviderSettingsScreen() {
     ]);
   };
 
+  const dangerColor = colors.danger || colors.primary;
+  const successColor = colors.success || colors.primary;
+
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
@@ -89,7 +94,7 @@ export default function ProviderSettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.card}>
-          <Feather name="settings" size={22} color="#16A34A" />
+          <Feather name="settings" size={22} color={successColor} />
           <Text style={styles.title}>إعدادات الحساب</Text>
           <Text style={styles.text}>إدارة الأمان وتفضيلات التطبيق.</Text>
         </View>
@@ -112,8 +117,20 @@ export default function ProviderSettingsScreen() {
           disabled={busy}
         >
           <View style={styles.actionLeft}>
-            <Feather name="lock" size={20} color="#0EA5E9" />
+            <Feather name="lock" size={20} color={colors.primary} />
             <Text style={styles.actionText}>تغيير كلمة المرور</Text>
+          </View>
+          <Feather name="chevron-left" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionCard, busy && { opacity: 0.7 }]}
+          onPress={() => navigation.navigate("Support")}
+          disabled={busy}
+        >
+          <View style={styles.actionLeft}>
+            <Feather name="help-circle" size={20} color={colors.primary} />
+            <Text style={styles.actionText}>تواصل ودعم</Text>
           </View>
           <Feather name="chevron-left" size={20} color={colors.textMuted} />
         </TouchableOpacity>
@@ -124,7 +141,7 @@ export default function ProviderSettingsScreen() {
           disabled={busy}
         >
           <View style={styles.actionLeft}>
-            <Feather name="log-out" size={20} color="#0EA5E9" />
+            <Feather name="log-out" size={20} color={colors.primary} />
             <Text style={styles.actionText}>تسجيل خروج من كل الأجهزة</Text>
           </View>
           <Feather name="chevron-left" size={20} color={colors.textMuted} />
@@ -136,14 +153,32 @@ export default function ProviderSettingsScreen() {
           disabled={busy || !privacyPolicyUrl}
         >
           <View style={styles.actionLeft}>
-            <Feather name="shield" size={20} color="#0EA5E9" />
+            <Feather name="shield" size={20} color={colors.primary} />
             <Text style={styles.actionText}>سياسة الخصوصية</Text>
           </View>
           <Feather name="external-link" size={18} color={colors.textMuted} />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.actionCard, (busy || isChecking || isDownloading) && { opacity: 0.7 }]}
+          onPress={checkManually}
+          disabled={busy || isChecking || isDownloading}
+        >
+          <View style={styles.actionLeft}>
+            <Feather name="download-cloud" size={20} color={colors.primary} />
+            <Text style={styles.actionText}>
+              {isDownloading ? "جارٍ تحميل التحديث..." : isChecking ? "جارٍ التحقق..." : "التحقق من التحديثات"}
+            </Text>
+          </View>
+          {(isChecking || isDownloading) ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Feather name="chevron-left" size={20} color={colors.textMuted} />
+          )}
+        </TouchableOpacity>
+
         <View style={[styles.card, { marginTop: 12 }]}> 
-          <Feather name="trash-2" size={22} color="#DC2626" />
+          <Feather name="trash-2" size={22} color={dangerColor} />
           <Text style={styles.title}>حذف الحساب</Text>
           <Text style={styles.text}>الحذف نهائي ولا يمكن التراجع عنه.</Text>
           <TouchableOpacity
@@ -152,7 +187,7 @@ export default function ProviderSettingsScreen() {
             disabled={busy}
           >
             {busy ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={colors.surface} />
             ) : (
               <Text style={styles.dangerBtnText}>حذف الحساب</Text>
             )}
@@ -222,13 +257,13 @@ const createStyles = (colors) =>
     },
     dangerBtn: {
       marginTop: 12,
-      backgroundColor: "#DC2626",
+      backgroundColor: colors.danger || colors.primary,
       borderRadius: 12,
       paddingVertical: 12,
       alignItems: "center",
     },
     dangerBtnText: {
-      color: "#FFFFFF",
+      color: colors.surface,
       fontSize: 15,
       fontWeight: "800",
     },

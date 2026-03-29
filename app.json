@@ -2,23 +2,29 @@
   "expo": {
     "name": "Medicare",
     "slug": "medicare",
-    "version": "1.0.0",
+    "version": "1.0.11",
     "orientation": "portrait",
     "jsEngine": "hermes",
-
     "icon": "./assets/images/icon.png",
     "scheme": "medicalbookingapp",
     "userInterfaceStyle": "automatic",
-
-    "splash": {
-      "image": "./assets/images/Medicare-first.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#000000"
+    "runtimeVersion": {
+      "policy": "appVersion"
     },
-
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 5000,
+      "url": "https://u.expo.dev/7d991cce-f39f-41cc-8a2f-5217775d6f06"
+    },
+    "splash": {
+      "image": "./assets/images/Medicare.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1e4980"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.uuofi.MedicalBookingApp",
+      "bundleIdentifier": "com.Auday.MedicalBookingApp",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى الصور لتحديث ملفك الشخصي.",
         "NSPhotoLibraryAddUsageDescription": "يتم حفظ الصور في المعرض عند الحاجة.",
@@ -27,11 +33,10 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
-      "package": "com.uuofi.MedicalBookingApp",
+      "package": "com.Auday.MedicalBookingApp",
+      "versionCode": 11,
       "googleServicesFile": "./google-services.json",
-      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"
@@ -40,34 +45,35 @@
         "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "READ_MEDIA_IMAGES",
         "READ_EXTERNAL_STORAGE",
         "POST_NOTIFICATIONS"
       ]
     },
-
     "plugins": [
       "expo-notifications",
+      "expo-font",
       [
-        "expo-splash-screen",
+        "expo-build-properties",
         {
-          "image": "./assets/images/Medicare-first.png",
-          "resizeMode": "cover",
-          "backgroundColor": "#000000"
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0"
+          }
         }
       ],
-      "expo-font"
+      "@react-native-community/datetimepicker",
+      "expo-updates"
     ],
-
     "extra": {
       "apiBaseUrl": "https://api.medicare-iq.com",
       "privacyPolicyUrl": "https://medicare-iq.com/privacy",
-      "accountDeletionUrl": "",
+      "termsUrl": "https://medicare-iq.com/terms",
+      "accountDeletionUrl": "https://medicare-iq.com/account-deletion",
       "eas": {
-        "projectId": "a121585f-68c7-4b75-b248-37eede596013"
+        "projectId": "e8673cbe-6646-4323-8b41-5b6e46be5dac"
       }
     },
-
-    "owner": "uuofimedicares-organization"
+    "owner": "uuofis-organization"
   }
 }

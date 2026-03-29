@@ -8,7 +8,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { saveRoleSelection } from "../lib/api";
+import {
+  clearExpoPushToken,
+  clearUserRole,
+  saveRefreshToken,
+  saveRoleSelection,
+  saveToken,
+} from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
 const options = [
@@ -22,6 +28,11 @@ const options = [
     title: "دكتور",
     description: "إدارة جدولك، عرض المرضى، متابعة الحجز.",
   },
+  // {
+  //   value: "lab",
+  //   title: "مختبر",
+  //   description: "إدارة الفحوصات، إدخال النتائج، متابعة الطلبات.",
+  // },
 ];
 
 export default function RoleSelectionScreen() {
@@ -30,8 +41,17 @@ export default function RoleSelectionScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const handleSelect = async (role) => {
-    await saveRoleSelection(role);
-    navigation.replace("Login", { role });
+    try {
+      await saveToken(null);
+      await saveRefreshToken(null);
+      await clearExpoPushToken();
+      await clearUserRole();
+      await saveRoleSelection(role);
+    } catch (error) {
+      console.warn("Failed to save selected role:", error);
+    } finally {
+      navigation.reset({ index: 0, routes: [{ name: "Login", params: { role } }] });
+    }
   };
 
   return (
@@ -56,13 +76,6 @@ export default function RoleSelectionScreen() {
             </TouchableOpacity>
           ))}
         </View>
-
-        <TouchableOpacity
-          style={styles.skipButton}
-          onPress={() => navigation.replace("MainTabs")}
-        >
-          <Text style={styles.skipText}>تخطي - تصفح التطبيق</Text>
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );

@@ -11,6 +11,8 @@ import {
   Alert,
   View,
   Text,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
 import * as Animatable from 'react-native-animatable';
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -27,10 +29,22 @@ import {
   Activity,
   Scissors,
   Eye,
-  Pill,
   FlaskConical,
+  HeartPulse,
+  Zap,
+  Droplets,
+  Smile,
+  Footprints,
+  Waves,
+  Radio,
+  Syringe,
+  ScanEye,
+  Sun,
+  Star,
+  Stethoscope,
 } from "lucide-react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -38,6 +52,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const ToothIcon = (props) => <FontAwesome5 name="tooth" {...props} />;
 const BeautyIcon = (props) => <FontAwesome5 name="spa" {...props} />;
 const NurseIcon = (props) => <FontAwesome5 name="user-nurse" {...props} />;
+const CenterIcon = (props) => <FontAwesome5 name="hospital-alt" {...props} />;
 
 const ImageWithFallback = ({ src, alt, styles }) => {
   const [error, setError] = useState(false);
@@ -60,7 +75,13 @@ const ImageWithFallback = ({ src, alt, styles }) => {
   );
 };
 
-import { fetchMe } from "../../lib/api";
+import {
+  API_BASE_URL,
+  fetchCenterDoctors,
+  fetchCenters,
+  fetchDoctors,
+  fetchMe,
+} from "../../lib/api";
 
 function TypewriterWelcome({ colors }) {
   const fullText = "مرحباً بك بـMedicare";
@@ -125,9 +146,12 @@ function TypewriterWelcome({ colors }) {
 }
 
 export default function App() {
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [userName, setUserName] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchDoctors, setSearchDoctors] = useState([]);
+  const [loadingSearchDoctors, setLoadingSearchDoctors] = useState(false);
   useEffect(() => {
     (async () => {
       try {
@@ -136,6 +160,118 @@ export default function App() {
       } catch {}
     })();
   }, []);
+
+  const resolveMediaUrl = (value) => {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (!raw) return "";
+    if (raw.startsWith("data:") || raw.startsWith("file:")) return raw;
+    const normalized = raw.replace(/\\/g, "/");
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) return normalized;
+    const prefix = normalized.startsWith("/") ? "" : "/";
+    return `${API_BASE_URL}${prefix}${normalized}`;
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDoctorsForSearch = async () => {
+      setLoadingSearchDoctors(true);
+      try {
+        const [regularDoctorsRes, centersRes] = await Promise.all([
+          fetchDoctors(),
+          fetchCenters(),
+        ]);
+
+        if (!active) return;
+
+        const centers = Array.isArray(centersRes?.centers) ? centersRes.centers : [];
+        const centerDoctorsLists = await Promise.all(
+          centers.map(async (center) => {
+            try {
+              const centerId = String(center?._id || center?.id || "");
+              if (!centerId) return [];
+              const data = await fetchCenterDoctors(centerId);
+              return Array.isArray(data?.doctors) ? data.doctors : [];
+            } catch {
+              return [];
+            }
+          })
+        );
+
+        if (!active) return;
+
+        const centerDoctorProfileIds = new Set(
+          centerDoctorsLists
+            .flat()
+            .map((doc) => String(doc?.id || doc?._id || ""))
+            .filter((id) => /^[a-fA-F0-9]{24}$/.test(id))
+        );
+
+        const regularDoctors = Array.isArray(regularDoctorsRes?.doctors)
+          ? regularDoctorsRes.doctors
+              .filter((doc) => {
+                const id = String(doc?._id || doc?.id || "");
+                return !centerDoctorProfileIds.has(id);
+              })
+              .map((doc) => {
+              const doctorId = String(doc?._id || doc?.id || "");
+              return {
+                key: `regular-${doctorId}`,
+                doctorId,
+                doctorCenterId: null,
+                medicalCenterId: null,
+                centerName: "",
+                displayName: doc?.displayName || doc?.user?.name || "الطبيب",
+                specialtyLabel: doc?.specialtyLabel || doc?.specialty || "",
+                phone: doc?.user?.phone || doc?.secretaryPhone || "",
+                licenseNumber: doc?.licenseNumber || "",
+                ratingAverage: Number(doc?.ratingAverage) || 0,
+                ratingCount: Number(doc?.ratingCount) || 0,
+                avatarUrl: resolveMediaUrl(doc?.avatarUrl || ""),
+                location: doc?.location || "",
+                locationLat: doc?.locationLat,
+                locationLng: doc?.locationLng,
+                schedule: doc?.schedule,
+                specialtySlug: doc?.specialtySlug || "",
+              };
+            })
+          : [];
+
+        setSearchDoctors(regularDoctors);
+      } catch {
+        if (active) {
+          setSearchDoctors([]);
+        }
+      } finally {
+        if (active) setLoadingSearchDoctors(false);
+      }
+    };
+
+    loadDoctorsForSearch();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const visibleSearchDoctors = normalizedSearchTerm
+    ? searchDoctors
+        .filter((doc) => {
+          const haystack = [
+            doc.displayName,
+            doc.specialtyLabel,
+            doc.phone,
+            doc.licenseNumber,
+            doc.centerName,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(normalizedSearchTerm);
+        })
+        .slice(0, 12)
+    : [];
   const fallbackCarousel = useMemo(
     () => [
       require("../../assets/images/a.png"),
@@ -184,6 +320,12 @@ export default function App() {
       color: "#DC2626",
       bgColor: "#FEF2F2",
       slug: "cardiology",
+      accents: [
+        { Icon: HeartPulse, top: -4, right: -2, size: 28, rotate: "-18deg", opacity: 0.10 },
+        { Icon: Heart, bottom: 18, left: -4, size: 18, rotate: "22deg", opacity: 0.08 },
+        { Icon: Activity, top: 32, right: 4, size: 14, rotate: "12deg", opacity: 0.07 },
+        { Icon: Heart, bottom: -2, right: 10, size: 22, rotate: "-30deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الأعصاب",
@@ -191,6 +333,12 @@ export default function App() {
       color: "#7C3AED",
       bgColor: "#F5F3FF",
       slug: "neurology",
+      accents: [
+        { Icon: Zap, top: -2, right: 0, size: 26, rotate: "-22deg", opacity: 0.10 },
+        { Icon: Brain, bottom: 16, left: -4, size: 20, rotate: "18deg", opacity: 0.07 },
+        { Icon: Zap, bottom: -2, right: 14, size: 16, rotate: "30deg", opacity: 0.06 },
+        { Icon: Zap, top: 36, left: 2, size: 12, rotate: "-10deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الجلدية",
@@ -198,6 +346,12 @@ export default function App() {
       color: "#DB2777",
       bgColor: "#FDF2F8",
       slug: "dermatology",
+      accents: [
+        { Icon: Droplets, top: -3, right: 0, size: 24, rotate: "-12deg", opacity: 0.10 },
+        { Icon: Sun, bottom: 18, left: -2, size: 20, rotate: "18deg", opacity: 0.08 },
+        { Icon: Sparkles, bottom: -2, right: 8, size: 16, rotate: "35deg", opacity: 0.06 },
+        { Icon: Droplets, top: 34, right: 6, size: 12, rotate: "20deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الأطفال",
@@ -205,6 +359,12 @@ export default function App() {
       color: "#0EA5E9",
       bgColor: "#E0F2FE",
       slug: "pediatrics",
+      accents: [
+        { Icon: Star, top: -3, right: 0, size: 26, rotate: "-18deg", opacity: 0.10 },
+        { Icon: Smile, bottom: 16, left: -2, size: 18, rotate: "12deg", opacity: 0.08 },
+        { Icon: Heart, bottom: -2, right: 12, size: 16, rotate: "25deg", opacity: 0.06 },
+        { Icon: Star, top: 38, left: 4, size: 12, rotate: "-25deg", opacity: 0.06 },
+      ],
     },
     {
       name: "العظام",
@@ -212,13 +372,25 @@ export default function App() {
       color: "#EA580C",
       bgColor: "#FFF7ED",
       slug: "orthopedics",
+      accents: [
+        { Icon: Bone, top: -4, right: -2, size: 26, rotate: "38deg", opacity: 0.10 },
+        { Icon: Footprints, bottom: 16, left: -2, size: 20, rotate: "-12deg", opacity: 0.08 },
+        { Icon: Bone, bottom: -2, right: 10, size: 16, rotate: "-28deg", opacity: 0.06 },
+        { Icon: Footprints, top: 36, right: 4, size: 12, rotate: "15deg", opacity: 0.06 },
+      ],
     },
     {
-      name: "الأذن والأنف والحنجرة",
+      name: "الأنف والأذن",
       icon: Ear,
       color: "#0D9488",
       bgColor: "#F0FDFA",
       slug: "ent",
+      accents: [
+        { Icon: Waves, top: -3, right: 0, size: 26, rotate: "0deg", opacity: 0.10 },
+        { Icon: Ear, bottom: 18, left: -4, size: 18, rotate: "18deg", opacity: 0.07 },
+        { Icon: Radio, bottom: -2, right: 10, size: 16, rotate: "-22deg", opacity: 0.06 },
+        { Icon: Waves, top: 34, left: 2, size: 14, rotate: "10deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الأشعة",
@@ -226,6 +398,12 @@ export default function App() {
       color: "#0891B2",
       bgColor: "#ECFEFF",
       slug: "radiology",
+      accents: [
+        { Icon: Radio, top: -3, right: -2, size: 26, rotate: "-18deg", opacity: 0.10 },
+        { Icon: Activity, bottom: 16, left: -2, size: 20, rotate: "14deg", opacity: 0.08 },
+        { Icon: Zap, bottom: -2, right: 12, size: 16, rotate: "32deg", opacity: 0.06 },
+        { Icon: Radio, top: 36, left: 4, size: 12, rotate: "-10deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الجراحة العامة",
@@ -233,6 +411,12 @@ export default function App() {
       color: "#4F46E5",
       bgColor: "#EEF2FF",
       slug: "general-surgery",
+      accents: [
+        { Icon: Syringe, top: -4, right: -2, size: 26, rotate: "-28deg", opacity: 0.10 },
+        { Icon: Scissors, bottom: 18, left: -2, size: 18, rotate: "22deg", opacity: 0.08 },
+        { Icon: Stethoscope, bottom: -2, right: 8, size: 16, rotate: "12deg", opacity: 0.06 },
+        { Icon: Syringe, top: 36, left: 4, size: 12, rotate: "18deg", opacity: 0.06 },
+      ],
     },
     {
       name: "العيون",
@@ -240,6 +424,12 @@ export default function App() {
       color: "#16A34A",
       bgColor: "#ECFDF3",
       slug: "ophthalmology",
+      accents: [
+        { Icon: ScanEye, top: -3, right: 0, size: 26, rotate: "-12deg", opacity: 0.10 },
+        { Icon: Eye, bottom: 16, left: -4, size: 20, rotate: "18deg", opacity: 0.08 },
+        { Icon: Sparkles, bottom: -2, right: 12, size: 16, rotate: "28deg", opacity: 0.06 },
+        { Icon: Eye, top: 38, right: 6, size: 12, rotate: "-20deg", opacity: 0.06 },
+      ],
     },
     {
       name: "التجميل",
@@ -247,6 +437,12 @@ export default function App() {
       color: "#D946EF",
       bgColor: "#F5E6FF",
       slug: "aesthetics",
+      accents: [
+        { Icon: Star, top: -3, right: 0, size: 26, rotate: "-18deg", opacity: 0.10 },
+        { Icon: Sparkles, bottom: 18, left: -2, size: 18, rotate: "12deg", opacity: 0.08 },
+        { Icon: Sun, bottom: -2, right: 10, size: 16, rotate: "22deg", opacity: 0.06 },
+        { Icon: Star, top: 36, left: 4, size: 12, rotate: "-25deg", opacity: 0.06 },
+      ],
     },
     {
       name: "الأسنان",
@@ -254,6 +450,12 @@ export default function App() {
       color: "#0EA5E9",
       bgColor: "#E0F2FE",
       slug: "dentistry",
+      accents: [
+        { Icon: ToothIcon, top: -3, right: -2, size: 26, rotate: "-22deg", opacity: 0.10 },
+        { Icon: Sparkles, bottom: 16, left: -2, size: 18, rotate: "18deg", opacity: 0.08 },
+        { Icon: ToothIcon, bottom: -2, right: 12, size: 18, rotate: "28deg", opacity: 0.06 },
+        { Icon: Star, top: 38, left: 4, size: 12, rotate: "-15deg", opacity: 0.06 },
+      ],
     },
   ];
 
@@ -261,9 +463,9 @@ export default function App() {
   const quickActions = [
     
     {
-      key: "pharmacy",
-      label: "صيدلية",
-      icon: Pill,
+      key: "centers",
+      label: "المراكز",
+      icon: CenterIcon,
       color: "#16A34A",
       bgColor: "#DCFCE7",
     },
@@ -357,9 +559,13 @@ export default function App() {
       return;
     }
 
-    if (key === "pharmacy") {
-      // غيّرها لاحقاً إلى navigation.navigate("Pharmacy")
-      Alert.alert("قريباً", "شاشة الصيدلية سيتم ربطها لاحقاً.");
+    if (key === "centers") {
+      const parentNav = navigation.getParent?.();
+      if (parentNav?.navigate) {
+        parentNav.navigate("CentersMini");
+      } else {
+        navigation.navigate("CentersMini");
+      }
       return;
     }
 
@@ -374,6 +580,39 @@ export default function App() {
     }
   };
 
+  const handleSearchDoctorPress = (doctor) => {
+    if (!doctor) return;
+
+    const doctorId = String(doctor.doctorId || "");
+    if (!/^[a-fA-F0-9]{24}$/.test(doctorId)) {
+      Alert.alert("تعذر الحجز", "بيانات الطبيب غير مكتملة حالياً.");
+      return;
+    }
+
+    const isCenterDoctor =
+      /^[a-fA-F0-9]{24}$/.test(String(doctor.medicalCenterId || "")) &&
+      /^[a-fA-F0-9]{24}$/.test(String(doctor.doctorCenterId || ""));
+
+    navigation.navigate("BookAppointment", {
+      doctorName: doctor.displayName,
+      doctorRole: doctor.specialtyLabel || "طبيب",
+      specialty: doctor.specialtyLabel || "",
+      specialtySlug: doctor.specialtySlug || "",
+      doctorId,
+      ...(isCenterDoctor
+        ? {
+            medicalCenterId: doctor.medicalCenterId,
+            doctorCenterId: doctor.doctorCenterId,
+          }
+        : {}),
+      avatarUrl: doctor.avatarUrl,
+      location: doctor.location,
+      locationLat: doctor.locationLat,
+      locationLng: doctor.locationLng,
+      schedule: doctor.schedule,
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -384,6 +623,58 @@ export default function App() {
       >
         {/* Welcome Message */}
         <TypewriterWelcome colors={colors} />
+
+        <View style={styles.section}>
+          <View style={styles.searchBoxOuter}>
+            <View style={styles.searchIconWrap}>
+              <Feather name="search" size={16} color={colors.primary} />
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="ابحث عن طبيب بالاسم أو الاختصاص"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              placeholderTextColor={colors.placeholder}
+            />
+          </View>
+          {!!normalizedSearchTerm && loadingSearchDoctors ? (
+            <View style={styles.searchLoadingRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.searchLoadingText}>جاري تحميل نتائج البحث...</Text>
+            </View>
+          ) : null}
+
+          {!!normalizedSearchTerm && !loadingSearchDoctors && (
+            <View style={styles.searchResultsWrap}>
+              {visibleSearchDoctors.length ? (
+                visibleSearchDoctors.map((doctor) => (
+                  <TouchableOpacity
+                    key={doctor.key}
+                    style={styles.searchResultRow}
+                    onPress={() => handleSearchDoctorPress(doctor)}
+                    activeOpacity={0.8}
+                  >
+                    {doctor.avatarUrl ? (
+                      <Image source={{ uri: doctor.avatarUrl }} style={styles.searchResultAvatarImage} />
+                    ) : (
+                      <View style={styles.searchResultAvatar} />
+                    )}
+                    <View style={styles.searchResultContent}>
+                      <Text style={styles.searchResultName}>{doctor.displayName}</Text>
+                      <Text style={styles.searchResultMeta}>
+                        {doctor.specialtyLabel || "طبيب"}
+                        {doctor.centerName ? ` • ${doctor.centerName}` : ""}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-left" size={16} color={colors.primary} />
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.searchEmptyText}>لا توجد نتائج مطابقة.</Text>
+              )}
+            </View>
+          )}
+        </View>
         {/* Top Section - Image Carousel */}
         <View style={styles.carouselContainerOuter}>
           <View style={styles.carouselCard}>
@@ -425,7 +716,7 @@ export default function App() {
           </View>
         </View>
 
-        {/* Quick Actions Icons (التخصصات / صيدلية / تحليلات / تمريض) */}
+        {/* Quick Actions Icons (المراكز / تحليلات / تمريض) */}
         <View style={styles.section}>
           <View style={styles.quickActionsRow}>
             {quickActions.map((action) => {
@@ -440,7 +731,7 @@ export default function App() {
                   <View
                     style={[
                       styles.quickActionIconWrapper,
-                      { backgroundColor: action.bgColor },
+                      { backgroundColor: isDark ? action.color + "20" : action.bgColor },
                     ]}
                   >
                     <IconComp color={action.color} size={22} />
@@ -466,18 +757,64 @@ export default function App() {
                 <TouchableOpacity
                   key={specialty.name}
                   style={[styles.gridItem, isActive && styles.gridItemActive]}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   onPress={() => handleSpecialtyPress(specialty)}
                 >
+                  {/* Decorative accent icons */}
+                  {(specialty.accents || []).map((acc, i) => {
+                    const AccIcon = acc.Icon;
+                    return (
+                      <View
+                        key={i}
+                        pointerEvents="none"
+                        style={{
+                          position: "absolute",
+                          ...(acc.top != null && { top: acc.top }),
+                          ...(acc.bottom != null && { bottom: acc.bottom }),
+                          ...(acc.left != null && { left: acc.left }),
+                          ...(acc.right != null && { right: acc.right }),
+                          opacity: acc.opacity || 0.08,
+                          transform: [{ rotate: acc.rotate || "0deg" }],
+                        }}
+                      >
+                        <AccIcon color={specialty.color} size={acc.size || 14} />
+                      </View>
+                    );
+                  })}
+
+                  {/* Colored accent strip at bottom */}
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: 3.5,
+                      borderBottomLeftRadius: 18,
+                      borderBottomRightRadius: 18,
+                      backgroundColor: specialty.color,
+                      opacity: isActive ? 0.7 : 0.2,
+                    }}
+                  />
+
                   <View
                     style={[
                       styles.iconWrapper,
-                      { backgroundColor: specialty.bgColor },
+                      { backgroundColor: isDark ? specialty.color + "20" : specialty.bgColor },
                     ]}
                   >
                     <Icon color={specialty.color} size={24} />
                   </View>
-                  <Text style={styles.gridItemText}>{specialty.name}</Text>
+                  <Text
+                    style={[
+                      styles.gridItemText,
+                      isActive && { color: specialty.color, fontWeight: "800" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {specialty.name}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
@@ -488,7 +825,8 @@ export default function App() {
         <View style={styles.section}>
           <View style={styles.emergencyWrap}>
             <View style={styles.emergencyCard}>
-              <Text style={styles.emergencyLabel}>اتصل على الطوارئ</Text>
+              <Text style={styles.emergencyLabel}>اتصال الطوارئ</Text>
+              <Text style={styles.emergencySubLabel}>للحالات الحرجة اضغط مباشرة للاتصال السريع</Text>
 
               <View style={styles.emergencyButtonWrap}>
                 <Animatable.View
@@ -503,8 +841,9 @@ export default function App() {
                   style={styles.emergencyButton}
                   onPress={handleEmergencyCallPress}
                 >
-                  <FontAwesome5 name="phone-alt" size={30} color="#fff" />
+                  <FontAwesome5 name="phone-alt" size={34} color={colors.surface} />
                   <Text style={styles.emergencyText}>911</Text>
+                  <Text style={styles.emergencyButtonHint}>اتصال فوري</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -517,7 +856,7 @@ export default function App() {
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -582,24 +921,121 @@ const createStyles = (colors) =>
       paddingHorizontal: 16,
       paddingVertical: 16,
     },
+    searchBoxOuter: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 16,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      backgroundColor: colors.surface,
+      gap: 8,
+    },
+    searchIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    searchLoadingRow: {
+      marginTop: 10,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 8,
+    },
+    searchLoadingText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      writingDirection: "rtl",
+    },
+    searchResultsWrap: {
+      marginTop: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    searchResultRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    searchResultAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceAlt,
+    },
+    searchResultAvatarImage: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+    },
+    searchResultContent: {
+      flex: 1,
+      alignItems: "flex-end",
+    },
+    searchResultName: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    searchResultMeta: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    searchEmptyText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: "center",
+      paddingVertical: 12,
+      writingDirection: "rtl",
+    },
 
   // ===== emergency call =====
   emergencyWrap: {
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   emergencyCard: {
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 18,
+    paddingVertical: 20,
     paddingHorizontal: 16,
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 2,
-    borderColor: "rgba(220,38,38,0.35)",
-    backgroundColor: "rgba(220,38,38,0.10)",
+    borderColor: colors.danger,
+    backgroundColor: colors.surface,
+    shadowColor: colors.danger,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 4,
   },
   emergencyButtonWrap: {
     position: "relative",
@@ -608,32 +1044,47 @@ const createStyles = (colors) =>
   },
   emergencyPulse: {
     position: "absolute",
-    width: 140,
-    height: 140,
+    width: 176,
+    height: 176,
     borderRadius: 999,
-    backgroundColor: "#DC2626",
+    backgroundColor: colors.danger,
+    opacity: 0.22,
   },
   emergencyButton: {
-    width: 140,
-    height: 140,
+    width: 176,
+    height: 176,
     borderRadius: 999,
-    backgroundColor: "#DC2626",
+    backgroundColor: colors.danger,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
   },
   emergencyText: {
-    color: "#fff",
+    color: colors.surface,
     fontWeight: "800",
-    fontSize: 22,
+    fontSize: 34,
+  },
+  emergencyButtonHint: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: "700",
+    writingDirection: "rtl",
   },
   emergencyLabel: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "800",
     textAlign: "right",
     writingDirection: "rtl",
-    marginBottom: 12,
+    marginBottom: 4,
+  },
+  emergencySubLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    writingDirection: "rtl",
+    marginBottom: 14,
   },
   sectionTitle: {
     marginBottom: 16,
@@ -677,7 +1128,7 @@ const createStyles = (colors) =>
     flexDirection: "row-reverse",
     flexWrap: "wrap",
     justifyContent: "flex-start",
-    rowGap: 12,
+    rowGap: 14,
     columnGap: 12,
   },
   gridItem: {
@@ -686,31 +1137,42 @@ const createStyles = (colors) =>
     maxWidth: "33%",
     flexGrow: 1,
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    paddingVertical: 12,
+    borderRadius: 18,
+    paddingTop: 14,
+    paddingBottom: 12,
     paddingHorizontal: 6,
     alignItems: "center",
-    elevation: 1,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: colors.border,
+    elevation: 2,
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
   },
   gridItemActive: {
-    borderWidth: 1,
     borderColor: colors.primary,
-    shadowOpacity: 0.25,
-    elevation: 3,
+    backgroundColor: colors.surface,
+    shadowOpacity: 0.18,
+    elevation: 6,
   },
   iconWrapper: {
-    padding: 10,
-    borderRadius: 999,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     marginBottom: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
   },
   gridItemText: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: "700",
     textAlign: "center",
-    color: colors.textMuted,
+    color: colors.text,
+    letterSpacing: 0.2,
   },
   hospitalCard: {
     backgroundColor: colors.surface,
@@ -728,12 +1190,12 @@ const createStyles = (colors) =>
     borderRadius: 18,
     height: 120,
     marginBottom: 14,
-    backgroundColor: "#DBEAFE",
+    backgroundColor: isDark ? "rgba(56,189,248,0.12)" : "#DBEAFE",
     alignItems: "center",
     justifyContent: "center",
   },
   pinWrapper: {
-    backgroundColor: "#EF4444",
+    backgroundColor: colors.danger,
     padding: 10,
     borderRadius: 999,
     elevation: 4,
@@ -777,7 +1239,7 @@ const createStyles = (colors) =>
     justifyContent: "center",
   },
   detailsButtonText: {
-    color: "#FFFFFF",
+    color: "#fff",
     fontSize: 14,
     fontWeight: "600",
   },

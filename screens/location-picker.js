@@ -13,6 +13,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
+import { useAppTheme } from "../lib/useTheme";
 
 function formatAddress(addr) {
   if (!addr) return "";
@@ -31,11 +32,14 @@ export default function LocationPickerScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const params = route.params || {};
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   const mapRef = useRef(null);
 
   const returnTo = params.returnTo || null;
   const title = params.title || "اختيار موقع العيادة";
+  const formState = params.formState;
 
   const initial = useMemo(() => {
     const lat = Number(params.initialLatitude);
@@ -214,6 +218,7 @@ export default function LocationPickerScreen() {
           longitude: selected.longitude,
           address: selected.address || "",
         },
+        formState,
       },
       merge: true,
     });
@@ -223,7 +228,7 @@ export default function LocationPickerScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Feather name="chevron-right" size={22} color="#111827" />
+          <Feather name="chevron-right" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
         <View style={styles.headerBtn} />
@@ -231,7 +236,7 @@ export default function LocationPickerScreen() {
 
       {loading || !region ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#0EA5E9" />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>جارٍ تحميل الخريطة...</Text>
         </View>
       ) : (
@@ -252,14 +257,14 @@ export default function LocationPickerScreen() {
               style={styles.currentBtn}
               onPress={() => goToCurrentLocation({ alsoSelect: false })}
             >
-              <Feather name="crosshair" size={18} color="#0EA5E9" />
+              <Feather name="crosshair" size={18} color={colors.primary} />
             </TouchableOpacity>
 
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="ابحث عن موقع (اسم مكان أو عنوان)"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.placeholder}
               style={styles.searchInput}
               textAlign="right"
               writingDirection="rtl"
@@ -273,9 +278,9 @@ export default function LocationPickerScreen() {
               disabled={searching}
             >
               {searching ? (
-                <ActivityIndicator size="small" color="#0EA5E9" />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
-                <Feather name="search" size={18} color="#0EA5E9" />
+                <Feather name="search" size={18} color={colors.primary} />
               )}
             </TouchableOpacity>
           </View>
@@ -300,92 +305,93 @@ export default function LocationPickerScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    writingDirection: "rtl",
-  },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { marginTop: 12, color: "#374151", writingDirection: "rtl" },
-  container: { flex: 1 },
-  map: { flex: 1 },
-  searchBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    top: 12,
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  currentBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E0F2FE",
-    backgroundColor: "#E0F2FE",
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    fontSize: 13,
-    color: "#111827",
-  },
-  searchBtn: {
-    width: 42,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E0F2FE",
-    backgroundColor: "#E0F2FE",
-  },
-  searchBtnDisabled: {
-    opacity: 0.7,
-  },
-  bottomSheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  sheetTitle: { fontSize: 14, fontWeight: "700", color: "#111827", textAlign: "right", writingDirection: "rtl" },
-  sheetBody: { marginTop: 6, fontSize: 13, color: "#4B5563", textAlign: "right", writingDirection: "rtl" },
-  confirmBtn: {
-    marginTop: 12,
-    backgroundColor: "#0EA5E9",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  confirmText: { color: "#fff", fontWeight: "700", fontSize: 15, writingDirection: "rtl" },
-});
+const createStyles = (colors, isDark) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+    headerTitle: {
+      flex: 1,
+      textAlign: "center",
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+    loadingText: { marginTop: 12, color: colors.textMuted, writingDirection: "rtl" },
+    container: { flex: 1 },
+    map: { flex: 1 },
+    searchBar: {
+      position: "absolute",
+      left: 16,
+      right: 16,
+      top: 12,
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    currentBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: isDark ? colors.border : "#E0F2FE",
+      backgroundColor: isDark ? colors.surfaceAlt : "#E0F2FE",
+    },
+    searchInput: {
+      flex: 1,
+      height: 40,
+      fontSize: 13,
+      color: colors.text,
+    },
+    searchBtn: {
+      width: 42,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: isDark ? colors.border : "#E0F2FE",
+      backgroundColor: isDark ? colors.surfaceAlt : "#E0F2FE",
+    },
+    searchBtnDisabled: {
+      opacity: 0.7,
+    },
+    bottomSheet: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: 16,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    sheetTitle: { fontSize: 14, fontWeight: "700", color: colors.text, textAlign: "right", writingDirection: "rtl" },
+    sheetBody: { marginTop: 6, fontSize: 13, color: colors.textMuted, textAlign: "right", writingDirection: "rtl" },
+    confirmBtn: {
+      marginTop: 12,
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: "center",
+    },
+    confirmText: { color: "#fff", fontWeight: "700", fontSize: 15, writingDirection: "rtl" },
+  });

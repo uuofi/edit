@@ -18,6 +18,28 @@ import { fetchDoctorsBySpecialty } from "../../lib/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppTheme } from "../../lib/useTheme";
 
+const compareDoctorsByRating = (a, b) => {
+  const avgA = Number(a?.ratingAverage);
+  const avgB = Number(b?.ratingAverage);
+  const countA = Number(a?.ratingCount);
+  const countB = Number(b?.ratingCount);
+
+  const safeAvgA = Number.isFinite(avgA) ? avgA : 0;
+  const safeAvgB = Number.isFinite(avgB) ? avgB : 0;
+  const safeCountA = Number.isFinite(countA) ? countA : 0;
+  const safeCountB = Number.isFinite(countB) ? countB : 0;
+
+  const rankA = safeCountA > 0 ? safeAvgA : -1;
+  const rankB = safeCountB > 0 ? safeAvgB : -1;
+
+  if (rankB !== rankA) return rankB - rankA;
+  if (safeCountB !== safeCountA) return safeCountB - safeCountA;
+
+  const nameA = String(a?.displayName || a?.name || "");
+  const nameB = String(b?.displayName || b?.name || "");
+  return nameA.localeCompare(nameB, "ar");
+};
+
 export default function SpecialtyScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -61,7 +83,7 @@ export default function SpecialtyScreen() {
 
   const normalizedTerm = searchTerm.trim().toLowerCase();
 
-  const visibleDoctors = normalizedTerm
+  const visibleDoctors = (normalizedTerm
     ? availableDoctors.filter((doc) => {
         const haystack = [
           doc.displayName,
@@ -77,7 +99,10 @@ export default function SpecialtyScreen() {
           .toLowerCase();
         return haystack.includes(normalizedTerm);
       })
-    : availableDoctors;
+    : availableDoctors
+  )
+    .slice()
+    .sort(compareDoctorsByRating);
 
   const normalizedIndex = Math.min(
     selectedDoctorIndex,
@@ -96,6 +121,7 @@ export default function SpecialtyScreen() {
   const handleDoctorPress = (doctor) => {
     if (!doctor) return;
     navigation.navigate("DoctorDetails", {
+      doctorId: doctor._id || doctor.id,
       name: doctor.displayName || doctor.name,
       role: doctor.role || "طبيب",
       specialty: doctor.specialtyLabel || specialty.title,
@@ -109,6 +135,8 @@ export default function SpecialtyScreen() {
       certification: doctor.certification,
       cv: doctor.cv,
       consultationFee: doctor.consultationFee,
+      ratingAverage: doctor.ratingAverage,
+      ratingCount: doctor.ratingCount,
       specialtySlug: doctor.specialtySlug || slug,
       phone: doctor.phone,
       secretaryPhone: doctor.secretaryPhone,
@@ -225,7 +253,9 @@ export default function SpecialtyScreen() {
           )}
 
           <View style={styles.searchBox}>
-            <Feather name="search" size={18} color={colors.textMuted} />
+            <View style={styles.searchIconWrap}>
+              <Feather name="search" size={16} color={colors.primary} />
+            </View>
             <TextInput
               style={styles.searchInput}
               placeholder="ابحث باسم الطبيب أو الاختصاص"
@@ -234,6 +264,7 @@ export default function SpecialtyScreen() {
               placeholderTextColor={colors.placeholder}
             />
           </View>
+          <Text style={styles.searchHint}>يمكنك البحث بالاسم، الاختصاص، رقم الترخيص أو رقم التواصل</Text>
 
           {!loadingDoctors && visibleDoctors.length === 0 && (
             <Text style={styles.emptyText}>لا توجد نتائج مطابقة الآن.</Text>
@@ -278,6 +309,15 @@ export default function SpecialtyScreen() {
                           اختصاص: {doctor.specialtyLabel}
                         </Text>
                       ) : null}
+
+                      <View style={styles.ratingInlineRow}>
+                        <Feather name="star" size={13} color={colors.primary} />
+                        <Text style={styles.ratingInlineText}>
+                          {Number(doctor?.ratingCount) > 0
+                            ? `${Number(doctor?.ratingAverage || 0).toFixed(1)} (${Number(doctor?.ratingCount)} تقييم)`
+                            : "بدون تقييم"}
+                        </Text>
+                      </View>
 
                       {doctor.age ? (
                         <Text style={styles.doctorRole}>
@@ -413,17 +453,34 @@ const createStyles = (colors) =>
       marginTop: 16,
     },
     searchBox: {
-      flexDirection: "row",
+      flexDirection: "row-reverse",
       alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      borderRadius: 16,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
       marginTop: 12,
-      marginBottom: 8,
-      backgroundColor: colors.surfaceAlt,
+      marginBottom: 6,
+      backgroundColor: colors.surface,
       gap: 8,
+    },
+    searchIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    searchHint: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+      marginBottom: 4,
     },
     searchInput: {
       flex: 1,
@@ -459,9 +516,9 @@ const createStyles = (colors) =>
     doctorRow: {
       flexDirection: "row-reverse",
       alignItems: "center",
-      paddingVertical: 12,
+      paddingVertical: 13,
       paddingHorizontal: 10,
-      borderRadius: 14,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -532,6 +589,17 @@ const createStyles = (colors) =>
       textAlign: "right",
       writingDirection: "rtl",
       marginTop: 2,
+    },
+    ratingInlineRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 4,
+      marginTop: 4,
+    },
+    ratingInlineText: {
+      fontSize: 12,
+      color: colors.text,
+      writingDirection: "rtl",
     },
     doctorEmail: {
       fontSize: 12,

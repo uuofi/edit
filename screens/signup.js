@@ -11,7 +11,11 @@ import {
   StyleSheet,
   Alert,
   Image,
+  Linking,
 } from "react-native";
+
+const PRIVACY_URL = "https://medicare-iq.com/privacy";
+const TERMS_URL = "https://medicare-iq.com/terms";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import * as ImagePicker from "expo-image-picker";
@@ -45,15 +49,38 @@ export default function SignupScreen() {
   );
   const [licenseNumber, setLicenseNumber] = useState("");
   const [avatarUri, setAvatarUri] = useState("");
-  const [avatarData, setAvatarData] = useState("");
+  const [avatarMimeType, setAvatarMimeType] = useState("image/jpeg");
   const [practiceLocation, setPracticeLocation] = useState("");
   const [practiceLocationLat, setPracticeLocationLat] = useState(null);
   const [practiceLocationLng, setPracticeLocationLng] = useState(null);
   const [certification, setCertification] = useState("");
   const [cv, setCv] = useState("");
   const [consultationFee, setConsultationFee] = useState("");
+  const [hasFixedConsultation, setHasFixedConsultation] = useState(false);
   const [secretaryPhone, setSecretaryPhone] = useState("");
   const [loading, setLoading] = useState(false);
+  const [termsAgreed, setTermsAgreed] = useState(false);
+
+  const buildSignupFormState = () => ({
+    role,
+    name,
+    age,
+    phone,
+    password,
+    confirm,
+    doctorSpecialty,
+    licenseNumber,
+    avatarUri,
+    avatarMimeType,
+    practiceLocation,
+    practiceLocationLat,
+    practiceLocationLng,
+    certification,
+    cv,
+    consultationFee,
+    hasFixedConsultation,
+    secretaryPhone,
+  });
 
   const normalizeIraqPhoneTo10Digits = (value) => {
     let digits = String(value || "").replace(/\D/g, "");
@@ -66,6 +93,25 @@ export default function SignupScreen() {
       digits = digits.slice(1);
     }
     return digits.slice(0, 10);
+  };
+
+  const imageUriToDataUrl = async (uri, mimeType = "image/jpeg") => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = String(reader.result || "");
+        if (result.startsWith("data:")) {
+          resolve(result);
+          return;
+        }
+        resolve(`data:${mimeType};base64,${result}`);
+      };
+      reader.onerror = () => reject(new Error("Failed to read image data"));
+      reader.readAsDataURL(blob);
+    });
   };
 
   useEffect(() => {
@@ -110,7 +156,45 @@ export default function SignupScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.params?.pickedLocation]);
 
+  useEffect(() => {
+    const formState = route.params?.formState;
+    if (!formState || typeof formState !== "object") return;
+
+    if (typeof formState.role === "string") setRole(formState.role);
+    if (typeof formState.name === "string") setName(formState.name);
+    if (typeof formState.age === "string") setAge(formState.age);
+    if (typeof formState.phone === "string") setPhone(formState.phone);
+    if (typeof formState.password === "string") setPassword(formState.password);
+    if (typeof formState.confirm === "string") setConfirm(formState.confirm);
+    if (typeof formState.doctorSpecialty === "string") setDoctorSpecialty(formState.doctorSpecialty);
+    if (typeof formState.licenseNumber === "string") setLicenseNumber(formState.licenseNumber);
+    if (typeof formState.avatarUri === "string") setAvatarUri(formState.avatarUri);
+    if (typeof formState.avatarMimeType === "string") setAvatarMimeType(formState.avatarMimeType);
+    if (typeof formState.practiceLocation === "string") setPracticeLocation(formState.practiceLocation);
+    if (Number.isFinite(Number(formState.practiceLocationLat))) {
+      setPracticeLocationLat(Number(formState.practiceLocationLat));
+    }
+    if (Number.isFinite(Number(formState.practiceLocationLng))) {
+      setPracticeLocationLng(Number(formState.practiceLocationLng));
+    }
+    if (typeof formState.certification === "string") setCertification(formState.certification);
+    if (typeof formState.cv === "string") setCv(formState.cv);
+    if (typeof formState.consultationFee === "string") setConsultationFee(formState.consultationFee);
+    if (typeof formState.hasFixedConsultation === "boolean") {
+      setHasFixedConsultation(formState.hasFixedConsultation);
+    }
+    if (typeof formState.secretaryPhone === "string") setSecretaryPhone(formState.secretaryPhone);
+
+    navigation.setParams?.({ formState: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.formState]);
+
   const handleSignup = async () => {
+
+    if (!termsAgreed) {
+      Alert.alert("التحقق مطلوب", "يجب الموافقة على سياسة الخصوصية وشروط الخدمة للمتابعة.");
+      return;
+    }
 
     if (!name || !phone || !password || !confirm || !age) {
       Alert.alert("خطأ", "الرجاء تعبئة جميع الحقول");
@@ -142,7 +226,7 @@ export default function SignupScreen() {
 
     if (
       role === "doctor" &&
-      (!avatarData || !practiceLocation || !certification || !cv)
+      (!avatarUri || !practiceLocation || !certification || !cv)
     ) {
       Alert.alert(
         "خطأ",
@@ -159,26 +243,33 @@ export default function SignupScreen() {
     }
 
     if (role === "doctor") {
-      const feeValue = Number(consultationFee);
-      if (!consultationFee.trim() || Number.isNaN(feeValue) || feeValue <= 0) {
-        Alert.alert("خطأ", "يرجى تحديد رسوم الاستشارة بشكل صحيح.");
-        return;
+      if (hasFixedConsultation) {
+        const feeValue = Number(consultationFee);
+        if (!consultationFee.trim() || Number.isNaN(feeValue) || feeValue <= 0) {
+          Alert.alert("خطأ", "يرجى تحديد رسوم الاستشارة بشكل صحيح.");
+          return;
+        }
       }
 
       const secretaryDigits = normalizeIraqPhoneTo10Digits(secretaryPhone);
       if (!secretaryDigits) {
-        Alert.alert("خطأ", "أدخل رقم السكرتير للتواصل مع المرضى.");
+        Alert.alert("خطأ", "أدخل رقم الموظف للتواصل مع المرضى.");
         return;
       }
 
       if (secretaryDigits.length !== 10 || !secretaryDigits.startsWith("7")) {
-        Alert.alert("خطأ", "رقم السكرتير يجب أن يكون 10 أرقام ويبدأ بـ7");
+        Alert.alert("خطأ", "رقم الموظف يجب أن يكون 10 أرقام ويبدأ بـ7");
         return;
       }
     }
 
     try {
       setLoading(true);
+
+      let avatarDataUrl;
+      if (role === "doctor" && avatarUri) {
+        avatarDataUrl = await imageUriToDataUrl(avatarUri, avatarMimeType || "image/jpeg");
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
@@ -196,15 +287,16 @@ export default function SignupScreen() {
           doctorSpecialtySlug: role === "doctor" ? doctorSpecialty : undefined,
           licenseNumber: role === "doctor" ? licenseNumber : undefined,
           avatarUrl:
-            role === "doctor" && avatarData
-              ? `data:image/jpeg;base64,${avatarData}`
+            role === "doctor" && avatarDataUrl
+              ? avatarDataUrl
               : undefined,
           location: role === "doctor" ? practiceLocation : undefined,
           locationLat: role === "doctor" ? practiceLocationLat : undefined,
           locationLng: role === "doctor" ? practiceLocationLng : undefined,
           certification: role === "doctor" ? certification : undefined,
           cv: role === "doctor" ? cv : undefined,
-          consultationFee: role === "doctor" ? consultationFee : undefined,
+          consultationFee:
+            role === "doctor" && hasFixedConsultation ? consultationFee : undefined,
           secretaryPhone:
             role === "doctor" ? normalizeIraqPhoneTo10Digits(secretaryPhone) : undefined,
         }),
@@ -226,7 +318,7 @@ export default function SignupScreen() {
 
       // Success
       if (role === "doctor") {
-        Alert.alert("تم إنشاء الحساب", "حسابك قيد المراجعة. سيتم تفعيل حسابك بعد موافقة الإدارة.", [
+        Alert.alert("تم إنشاء الحساب", "حسابك قيد المراجعة. سيتم تفعيل حسابك بعد موافقة الإدارة. يرجى التواصل مع الدعم لسرعة تفعيل الحساب.", [
           { text: "حسناً", onPress: () => navigation.replace("Login", { role: "doctor" }) },
         ]);
         return;
@@ -241,16 +333,20 @@ export default function SignupScreen() {
         }
         await api.saveUserRole("patient");
 
-          // 🔔 Register push token immediately after signup login
-          try {
-            const push = await import("../lib/pushNotifications");
-            const { expoPushToken } = await push.registerForPushNotificationsAsync() || {};
-            if (expoPushToken) {
-              await api.registerPushTokens({ expoPushToken });
-            }
-          } catch (pushErr) {
-            console.log("Push registration after signup failed:", pushErr);
+        // 🔔 Request push permission + register token BEFORE navigation
+        try {
+          console.log("[Signup] Starting push registration...");
+          const push = await import("../lib/pushNotifications");
+          const result = await push.registerForPushNotificationsAsync();
+          const expoPushToken = result?.expoPushToken;
+          console.log("[Signup] Push token result:", expoPushToken ? "GOT TOKEN" : "NO TOKEN");
+          if (expoPushToken) {
+            await api.registerExpoPushToken(expoPushToken);
+            console.log("[Signup] ✅ Push token registered with backend");
           }
+        } catch (pushErr) {
+          console.log("[Signup] Push registration error:", pushErr?.message || pushErr);
+        }
 
         navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
         return;
@@ -282,14 +378,13 @@ export default function SignupScreen() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.7,
-        base64: true,
       });
 
       if (picker.canceled || picker.cancelled) return;
 
       const asset = picker.assets?.[0];
 
-      if (!asset?.uri || !asset.base64) {
+      if (!asset?.uri) {
         Alert.alert(
           "خطأ",
           "تعذّر قراءة الصورة المختارة، جرّب صورة أخرى أو أعد تشغيل التطبيق."
@@ -298,7 +393,7 @@ export default function SignupScreen() {
       }
 
       setAvatarUri(asset.uri);
-      setAvatarData(asset.base64);
+      setAvatarMimeType(asset.mimeType || "image/jpeg");
     } catch (err) {
       console.log("Avatar pick error:", err);
       Alert.alert("خطأ", "تعذر اختيار الصورة، حاول مرة أخرى");
@@ -336,6 +431,21 @@ export default function SignupScreen() {
 
       {/* Form */}
       <View style={styles.form}>
+
+        {/* ── تنبيه خاص بالمريض ── */}
+        {role === "patient" && (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningIcon}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.warningTitle}>تنبيه مهم</Text>
+              <Text style={styles.warningText}>
+                يجب أن تكون المعلومات المُدخلة (الاسم، العمر، رقم الهاتف) معلومات المريض شخصياً حصراً.{" "}
+                لا يُسمح بإنشاء حساب بمعلومات شخص آخر.
+              </Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.field}>
           <Text style={styles.label}>الاسم الكامل</Text>
           <TextInput
@@ -471,14 +581,67 @@ export default function SignupScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>الخدمات وأسعارها</Text>
-              <Text style={{color: colors.placeholder, fontSize: 14, marginTop: 4}}>
-                يمكنك تحديد جميع الخدمات والأسعار من داخل التطبيق بعد إنشاء الحساب.
+              <Text style={styles.label}>نمط التسعير</Text>
+              <View style={styles.consultationModeRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.consultationModeChip,
+                    hasFixedConsultation && styles.consultationModeChipActive,
+                  ]}
+                  onPress={() => setHasFixedConsultation(true)}
+                >
+                  <Text
+                    style={[
+                      styles.consultationModeChipText,
+                      hasFixedConsultation && styles.consultationModeChipTextActive,
+                    ]}
+                  >
+                    عندي استشارة ثابتة
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.consultationModeChip,
+                    !hasFixedConsultation && styles.consultationModeChipActive,
+                  ]}
+                  onPress={() => setHasFixedConsultation(false)}
+                >
+                  <Text
+                    style={[
+                      styles.consultationModeChipText,
+                      !hasFixedConsultation && styles.consultationModeChipTextActive,
+                    ]}
+                  >
+                    أحدد الأسعار من الخدمات
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {hasFixedConsultation ? (
+                <TextInput
+                  placeholder="رسوم الاستشارة (دينار)"
+                  placeholderTextColor={colors.placeholder}
+                  style={[styles.input, { marginTop: 10 }]}
+                  keyboardType="numeric"
+                  value={consultationFee}
+                  onChangeText={setConsultationFee}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+              ) : (
+                <Text style={{color: colors.placeholder, fontSize: 14, marginTop: 8}}>
+                  تقدر تضيف كل الخدمات والأسعار لاحقاً من صفحة الخدمات بعد تسجيل الدخول.
+                </Text>
+              )}
+
+              <Text style={{color: colors.placeholder, fontSize: 13, marginTop: 6}}>
+                إذا فعّلت الاستشارة الثابتة سيتم اعتمادها مباشرة كرسوم عامة للحجز.
               </Text>
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>رقم السكرتير للتواصل</Text>
+              <Text style={styles.label}>رقم الموظف للتواصل</Text>
               <TextInput
                 placeholder="أدخل 10 أرقام تبدأ بـ7"
                 placeholderTextColor={colors.placeholder}
@@ -523,6 +686,7 @@ export default function SignupScreen() {
                         onPress={() =>
                           navigation.navigate("LocationPicker", {
                             returnTo: "Signup",
+                            formState: buildSignupFormState(),
                             title: "اختيار موقع العيادة",
                             initialLatitude: practiceLocationLat,
                             initialLongitude: practiceLocationLng,
@@ -560,8 +724,35 @@ export default function SignupScreen() {
           </>
         )}
 
+        {/* ── سياسة الخصوصية وشروط الخدمة ── */}
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={styles.termsRow}
+          onPress={() => setTermsAgreed((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.termsCheckbox, termsAgreed && styles.termsCheckboxChecked]}>
+            {termsAgreed && <Text style={styles.termsCheckMark}>✓</Text>}
+          </View>
+          <Text style={styles.termsText}>
+            أوافق على{" "}
+            <Text
+              style={styles.termsLink}
+              onPress={() => Linking.openURL(PRIVACY_URL)}
+            >
+              سياسة الخصوصية
+            </Text>
+            {" "}و{" "}
+            <Text
+              style={styles.termsLink}
+              onPress={() => Linking.openURL(TERMS_URL)}
+            >
+              شروط الخدمة
+            </Text>
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.primaryButton, !termsAgreed && styles.primaryButtonDisabled]}
           onPress={handleSignup}
           disabled={loading}
         >
@@ -776,5 +967,107 @@ const createStyles = (colors) =>
   specialtyOptionTextSelected: {
     color: colors.primary,
     fontWeight: "600",
+  },
+  consultationModeRow: {
+    flexDirection: "row-reverse",
+    flexWrap: "wrap",
+    justifyContent: "flex-start",
+    gap: 8,
+  },
+  consultationModeChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+  },
+  consultationModeChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceAlt,
+  },
+  consultationModeChipText: {
+    color: colors.text,
+    fontSize: 13,
+    writingDirection: "rtl",
+  },
+  consultationModeChipTextActive: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  // ── Warning banner (patient) ──
+  warningBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FB923C",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    gap: 8,
+  },
+  warningIcon: {
+    fontSize: 20,
+    marginTop: 1,
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#9A3412",
+    textAlign: "right",
+    marginBottom: 4,
+  },
+  warningText: {
+    fontSize: 13,
+    color: "#C2410C",
+    textAlign: "right",
+    lineHeight: 20,
+  },
+  // ── Terms row ──
+  termsRow: {
+    flexDirection: "row-reverse",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 14,
+    marginBottom: 4,
+    paddingHorizontal: 2,
+  },
+  termsCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  termsCheckboxChecked: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  termsCheckMark: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: "right",
+    lineHeight: 20,
+  },
+  termsLink: {
+    color: colors.primary,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
   },
   });

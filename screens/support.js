@@ -13,27 +13,49 @@ import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { useAppTheme } from "../lib/useTheme";
 
+const CONTACT_LINKS = {
+  whatsapp: "https://wa.me/9647817706168",
+  telegram: "https://t.me/medicareiq",
+  instagram: "https://www.instagram.com/medicare.iq/",
+  facebook: "https://www.facebook.com/share/184GkSfg6V/?mibextid=wwXIfr",
+  email: "mailto:medicare410@gmail.com",
+};
+
 const contactItems = [
   {
-    icon: "phone-call",
-    title: "اتصل بنا",
-    subtitle: "07839188916",
-    action: () => Linking.openURL("tel:07839188916"),
+    icon: "message-circle",
+    title: "واتساب",
+    subtitle: "9647817706168+",
+    url: CONTACT_LINKS.whatsapp,
+    tone: "success",
+  },
+  {
+    icon: "send",
+    title: "تليكرام",
+    subtitle: "@medicareiq",
+    url: CONTACT_LINKS.telegram,
+    tone: "primary",
+  },
+  {
+    icon: "instagram",
+    title: "انستغرام",
+    subtitle: "@medicare.iq",
+    url: CONTACT_LINKS.instagram,
+    tone: "danger",
+  },
+  {
+    icon: "facebook",
+    title: "فيسبوك",
+    subtitle: "Medicare IQ",
+    url: CONTACT_LINKS.facebook,
     tone: "primary",
   },
   {
     icon: "mail",
-    title: "إيميل الدعم",
-    subtitle: "support@medicare.sa",
-    action: () => Linking.openURL("mailto:support@medicare.sa"),
+    title: "البريد الإلكتروني",
+    subtitle: "medicare410@gmail.com",
+    url: CONTACT_LINKS.email,
     tone: "primary",
-  },
-  {
-    icon: "message-square",
-    title: "الدردشة الفورية",
-    subtitle: "يفتح واتساب للدعم",
-    action: () => Linking.openURL("https://wa.me/966500000000"),
-    tone: "success",
   },
 ];
 
@@ -58,9 +80,14 @@ export default function SupportScreen() {
 
   const styles = React.useMemo(() => createStyles(colors), [colors]);
 
-  const handlePress = async (action) => {
+  const handlePress = async (url) => {
     try {
-      await action();
+      const link = String(url || "").trim();
+      if (!link) {
+        Alert.alert("تنبيه", "وسيلة التواصل غير متوفرة حالياً");
+        return;
+      }
+      await Linking.openURL(link);
     } catch (_err) {
       Alert.alert("خطأ", "تعذر فتح وسيلة التواصل، جرّب لاحقًا");
     }
@@ -87,10 +114,18 @@ export default function SupportScreen() {
             <TouchableOpacity
               key={item.title}
               style={styles.contactRow}
-              onPress={() => handlePress(item.action)}
+              onPress={() => handlePress(item.url)}
               activeOpacity={0.8}
             >
-              <View style={[styles.contactIcon, { backgroundColor: iconBg }]}>
+              <View
+                style={[
+                  styles.contactIcon,
+                  {
+                    backgroundColor: iconBg,
+                    borderColor: toneColor,
+                  },
+                ]}
+              >
                 <Feather name={item.icon} size={18} color={toneColor} />
               </View>
               <View style={{ flex: 1 }}>
@@ -165,6 +200,7 @@ const createStyles = (colors) =>
       borderRadius: 10,
       alignItems: "center",
       justifyContent: "center",
+      borderWidth: 1,
     },
     contactTitle: { fontSize: 14, fontWeight: "600", color: colors.text },
     contactSubtitle: { fontSize: 13, color: colors.textMuted },

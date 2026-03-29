@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, View, Text } from "react-native";
+import { StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, View, Text, ActivityIndicator } from "react-native";
 import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -7,12 +7,14 @@ import { Feather } from "@expo/vector-icons";
 import { logout, logoutAllDevices } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 import { useThemePreference } from "../lib/ThemeProvider";
+import useOTAUpdates from "../lib/useOTAUpdates";
 
 export default function ProfileSettingsScreen() {
   const navigation = useNavigation();
   const [busy, setBusy] = useState(false);
   const { colors, isDark } = useAppTheme();
   const pref = useThemePreference();
+  const { isChecking, isDownloading, checkManually } = useOTAUpdates();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const extra =
@@ -73,7 +75,7 @@ export default function ProfileSettingsScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.card}>
-          <Feather name="settings" size={22} color="#16A34A" />
+          <Feather name="settings" size={22} color={colors.success} />
           <Text style={styles.title}>إعدادات الحساب</Text>
           <Text style={styles.text}>
             من هنا يمكنك إدارة تفضيلات الإشعارات، اللغة، وإعدادات الأمان مثل تغيير
@@ -99,10 +101,10 @@ export default function ProfileSettingsScreen() {
           disabled={busy}
         >
           <View style={styles.actionLeft}>
-            <Feather name="lock" size={20} color="#0EA5E9" />
+            <Feather name="lock" size={20} color={colors.primary} />
             <Text style={styles.actionText}>تغيير كلمة المرور</Text>
           </View>
-          <Feather name="chevron-left" size={20} color="#9CA3AF" />
+          <Feather name="chevron-left" size={20} color={colors.textMuted} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -111,7 +113,7 @@ export default function ProfileSettingsScreen() {
           disabled={busy}
         >
           <View style={styles.actionLeft}>
-            <Feather name="log-out" size={20} color="#0EA5E9" />
+            <Feather name="log-out" size={20} color={colors.primary} />
             <Text style={styles.actionText}>تسجيل خروج من كل الأجهزة</Text>
           </View>
           <Feather name="chevron-left" size={20} color={colors.textMuted} />
@@ -123,14 +125,32 @@ export default function ProfileSettingsScreen() {
           disabled={busy || !privacyPolicyUrl}
         >
           <View style={styles.actionLeft}>
-            <Feather name="shield" size={20} color="#0EA5E9" />
+            <Feather name="shield" size={20} color={colors.primary} />
             <Text style={styles.actionText}>سياسة الخصوصية</Text>
           </View>
           <Feather name="external-link" size={18} color={colors.textMuted} />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.actionCard, (busy || isChecking || isDownloading) && { opacity: 0.7 }]}
+          onPress={checkManually}
+          disabled={busy || isChecking || isDownloading}
+        >
+          <View style={styles.actionLeft}>
+            <Feather name="download-cloud" size={20} color={colors.primary} />
+            <Text style={styles.actionText}>
+              {isDownloading ? "جارٍ تحميل التحديث..." : isChecking ? "جارٍ التحقق..." : "التحقق من التحديثات"}
+            </Text>
+          </View>
+          {(isChecking || isDownloading) ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Feather name="chevron-left" size={20} color={colors.textMuted} />
+          )}
+        </TouchableOpacity>
+
         <View style={[styles.card, { marginTop: 12 }]}> 
-          <Feather name="trash-2" size={22} color="#DC2626" />
+          <Feather name="trash-2" size={22} color={colors.danger} />
           <Text style={styles.title}>حذف الحساب</Text>
           <Text style={styles.text}>
             إذا حذفت الحساب لن تتمكن من استرجاعه.
@@ -211,7 +231,7 @@ const createStyles = (colors) =>
     },
     dangerBtn: {
       marginTop: 12,
-      backgroundColor: "#DC2626",
+      backgroundColor: colors.danger,
       borderRadius: 12,
       paddingVertical: 12,
       alignItems: "center",

@@ -165,17 +165,23 @@ export default function MyAppointmentsScreen() {
                   name: item.doctorName,
                   role: item.doctorRole,
                   specialty: item.specialty,
+                  doctorProfile: item.doctorProfile,
                   appointmentDate: item.appointmentDate,
                   appointmentTime: item.appointmentTime,
                   status: statusKey,
                   appointmentId: item._id,
                   bookingNumber: item.bookingNumber,
+                  patientRatingScore: item.patientRatingScore,
+                  patientRatingComment: item.patientRatingComment,
+                  patientRatedAt: item.patientRatedAt,
                   doctorNote: item.doctorNote,
                   doctorPrescriptions: item.doctorPrescriptions,
                   avatarUrl: item.doctorProfile?.avatarUrl,
                   location: item.doctorProfile?.location,
                   locationLat: item.doctorProfile?.locationLat,
                   locationLng: item.doctorProfile?.locationLng,
+                  ratingAverage: item.doctorProfile?.ratingAverage,
+                  ratingCount: item.doctorProfile?.ratingCount,
                   consultationFee:
                     item.service?.price ?? item.doctorProfile?.consultationFee,
                   service: item.service,
@@ -255,7 +261,7 @@ const createStyles = (colors) =>
     },
     errorText: {
       textAlign: "center",
-      color: "#DC2626",
+      color: colors.danger,
       marginBottom: 12,
       writingDirection: "rtl",
     },
@@ -297,7 +303,7 @@ const createStyles = (colors) =>
       width: 56,
       height: 56,
       borderRadius: 999,
-      backgroundColor: "#DBEAFE",
+      backgroundColor: colors.primary + "20",
       marginLeft: 10,
     },
     avatarImage: {
@@ -330,31 +336,31 @@ const createStyles = (colors) =>
       borderRadius: 999,
     },
     statusConfirmed: {
-      backgroundColor: "#DCFCE7",
+      backgroundColor: colors.success + "20",
     },
     statusPending: {
-      backgroundColor: "#FEF3C7",
+      backgroundColor: colors.warning + "20",
     },
     statusCompleted: {
-      backgroundColor: "#E5E7EB",
+      backgroundColor: colors.surfaceAlt,
     },
     statusCancelled: {
-      backgroundColor: "#FEE2E2",
+      backgroundColor: colors.danger + "20",
     },
     statusText: {
       fontSize: 11,
     },
     statusTextConfirmed: {
-      color: "#16A34A",
+      color: colors.success,
     },
     statusTextPending: {
-      color: "#D97706",
+      color: colors.warning,
     },
     statusTextCompleted: {
-      color: "#4B5563",
+      color: colors.textMuted,
     },
     statusTextCancelled: {
-      color: "#B91C1C",
+      color: colors.danger,
     },
     cardBottomRow: {
       flexDirection: "row-reverse",

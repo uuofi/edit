@@ -13,8 +13,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
-import { fetchAppointments, ApiError, logout, API_BASE_URL } from "../lib/api";
+import { fetchPatientMedicalRecords, ApiError, logout, API_BASE_URL } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
+
+const EMPTY_MEDICAL_RECORDS_IMAGE = require("../assets/images/منشور سوشيال ميديا Instagram Post عن صيام شهر رمضان المبارك.png");
 
 export default function MedicalRecordsScreen() {
   const navigation = useNavigation();
@@ -36,8 +38,8 @@ export default function MedicalRecordsScreen() {
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchAppointments();
-      const list = Array.isArray(data.appointments) ? data.appointments : [];
+      const data = await fetchPatientMedicalRecords();
+      const list = Array.isArray(data.records) ? data.records : [];
       setRecords(list);
       setError("");
     } catch (err) {
@@ -67,6 +69,14 @@ export default function MedicalRecordsScreen() {
   useEffect(() => {
     loadRecords();
   }, [loadRecords]);
+
+  const medicalRecords = useMemo(() => {
+    return records.filter((item) => {
+      const hasNote = Boolean(item?.doctorNote);
+      const hasRx = Array.isArray(item?.prescriptions) && item.prescriptions.length > 0;
+      return hasNote || hasRx;
+    });
+  }, [records]);
 
   const renderPrescriptions = (items = []) => {
     if (!items.length) return null;
@@ -109,26 +119,24 @@ export default function MedicalRecordsScreen() {
       ) : (
         <ScrollView contentContainerStyle={styles.body}>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {!error && records.length === 0 ? (
-            <Text style={styles.empty}>لا توجد سجلات بعد</Text>
+          {!error && medicalRecords.length === 0 ? (
+            <View style={styles.emptyStateWrap}>
+              <Image
+                source={EMPTY_MEDICAL_RECORDS_IMAGE}
+                style={styles.emptyStateImage}
+                resizeMode="contain"
+              />
+              <Text style={styles.emptyStateText}>لايوجد سجلات طبية مرفوعة حاليا</Text>
+            </View>
           ) : null}
 
-          {records.map((item) => {
+          {medicalRecords.map((item) => {
             const hasNote = Boolean(item.doctorNote);
-            const hasRx = Array.isArray(item.doctorPrescriptions) && item.doctorPrescriptions.length > 0;
-            if (!hasNote && !hasRx) return null;
+            const hasRx = Array.isArray(item.prescriptions) && item.prescriptions.length > 0;
             return (
               <View key={item._id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.doctorInfo}>
-                    <Text style={styles.title}>{item.doctorName}</Text>
-                    <Text style={styles.subtitle}>{item.specialty}</Text>
-                  </View>
-                  <Text style={styles.date}>{item.appointmentDate} • {item.appointmentTime}</Text>
-                </View>
-
                 {hasNote ? (
-                  <View style={{ marginTop: 8 }}>
+                  <View>
                     <Text style={styles.sectionLabel}>ملاحظة الطبيب</Text>
                     <Text style={styles.sectionText}>{item.doctorNote}</Text>
                   </View>
@@ -136,8 +144,8 @@ export default function MedicalRecordsScreen() {
 
                 {hasRx ? (
                   <View style={{ marginTop: 10 }}>
-                    <Text style={styles.sectionLabel}>وصفات مرفوعة</Text>
-                    {renderPrescriptions(item.doctorPrescriptions)}
+                    <Text style={styles.sectionLabel}>الوصفة</Text>
+                    {renderPrescriptions(item.prescriptions)}
                   </View>
                 ) : null}
               </View>
@@ -153,8 +161,8 @@ export default function MedicalRecordsScreen() {
             <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="contain" />
             <View style={styles.previewActions}>
               <TouchableOpacity style={styles.previewButton} onPress={() => setPreviewUri("")}>
-                <Feather name="x" size={18} color="#EF4444" />
-                <Text style={[styles.previewButtonText, { color: "#EF4444" }]}>اغلاق</Text>
+                <Feather name="x" size={18} color={colors.danger} />
+                <Text style={[styles.previewButtonText, { color: colors.danger }]}>اغلاق</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -190,8 +198,27 @@ const createStyles = (colors) =>
     },
     refreshBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
     loader: { flex: 1, alignItems: "center", justifyContent: "center" },
-    errorText: { textAlign: "center", color: "#DC2626", marginTop: 16 },
-    empty: { textAlign: "center", color: colors.textMuted, marginTop: 24 },
+    errorText: { textAlign: "center", color: colors.danger, marginTop: 16 },
+    emptyStateWrap: {
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 28,
+      marginBottom: 8,
+      paddingHorizontal: 16,
+    },
+    emptyStateImage: {
+      width: 220,
+      height: 220,
+      marginBottom: 10,
+    },
+    emptyStateText: {
+      textAlign: "center",
+      color: colors.textMuted,
+      fontSize: 15,
+      fontWeight: "600",
+      writingDirection: "rtl",
+    },
     body: { padding: 16, writingDirection: "rtl", alignItems: "stretch" },
     card: {
       backgroundColor: colors.surface,
@@ -204,17 +231,6 @@ const createStyles = (colors) =>
       writingDirection: "rtl",
       width: "100%",
     },
-    cardHeader: {
-      flexDirection: "column",
-      alignItems: "flex-end",
-      rowGap: 6,
-      width: "100%",
-      writingDirection: "rtl",
-    },
-    doctorInfo: { alignItems: "flex-end" },
-    title: { fontSize: 16, fontWeight: "700", color: colors.text, textAlign: "right" },
-    subtitle: { fontSize: 13, color: colors.textMuted, textAlign: "right" },
-    date: { fontSize: 12, color: colors.textMuted, textAlign: "right" },
     sectionLabel: { fontSize: 13, color: colors.textMuted, marginTop: 4, textAlign: "right" },
     sectionText: { fontSize: 14, color: colors.text, lineHeight: 20, marginTop: 4, textAlign: "right" },
     prescriptionRow: { marginTop: 8, flexDirection: "row-reverse", width: "100%" },

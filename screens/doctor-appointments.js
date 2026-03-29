@@ -277,7 +277,7 @@ function createStyles(colors, isDark) {
     },
     acceptButton: {
       marginTop: 10,
-      backgroundColor: "#10B981",
+      backgroundColor: colors.success,
       borderRadius: 12,
       paddingVertical: 10,
       alignItems: "center",

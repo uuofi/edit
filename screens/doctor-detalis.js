@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -11,10 +11,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { openInGoogleMaps } from "../lib/maps";
+import { useAppTheme } from "../lib/useTheme";
 
 export default function DoctorDetailsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const params = route.params || {};
 
   const doctorName = params.name || "د. سارة جونسون";
@@ -28,11 +31,23 @@ export default function DoctorDetailsScreen() {
   const certification = params.certification;
   const cv = params.cv;
   const consultationFee = params.consultationFee;
+  const ratingAverage = Number(params.ratingAverage);
+  const ratingCount = Number(params.ratingCount);
+  const hasRating = Number.isFinite(ratingAverage) && ratingCount > 0;
+  const ratingText = hasRating
+    ? `${ratingAverage.toFixed(1)} (${ratingCount} تقييم)`
+    : "لا توجد تقييمات بعد";
   const contactPhone = params.phone || params.contactPhone || params.secretaryPhone;
   const doctorDescription =
     params.description ||
     params.bio ||
     `${doctorName} مختص بـ ${doctorSpecialty} ضمن ${specialtyTitle}، ويحافظ على متابعة دقيقة للمرضى.`;
+  const formatDinar = (value) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return null;
+    return `${amount.toLocaleString("en-US")} دينار`;
+  };
+  const formattedConsultationFee = formatDinar(consultationFee);
 
   const avatarSource = avatarUrl ? { uri: avatarUrl } : null;
 
@@ -48,62 +63,93 @@ export default function DoctorDetailsScreen() {
               style={styles.headerButton}
               onPress={() => navigation.goBack()}
             >
-              <Feather name="chevron-right" size={20} color="#111827" />
+              <Feather name="chevron-right" size={20} color={colors.text} />
             </TouchableOpacity>
             <View style={styles.headerTextContainer}>
+              <Text style={styles.headerSubtitle}>الملف التعريفي للطبيب</Text>
               <Text style={styles.headerTitle}>{doctorName}</Text>
-              <Text style={styles.headerSubtitle}>{specialtyTitle}</Text>
             </View>
           </View>
 
-          <View style={styles.doctorInfo}>
+          <View style={styles.heroCard}>
             <View style={styles.avatar}>
               {avatarSource ? (
                 <Image source={avatarSource} style={styles.avatarImage} />
               ) : (
-                <Feather name="user" size={42} color="#0EA5E9" />
+                <Feather name="user" size={42} color={colors.primary} />
               )}
             </View>
             <Text style={styles.doctorName}>{doctorName}</Text>
             <Text style={styles.doctorSpecialty}>{doctorSpecialty}</Text>
-            {doctorAge ? (
-              <Text style={styles.doctorSpecialty}>العمر: {doctorAge}</Text>
-            ) : null}
-            <View style={styles.ratingRow}>
-              <Feather name="star" size={16} color="#ffb700" />
-              <Text style={styles.ratingText}>٤.٨ (١٢٠ تقييم)</Text>
-            </View>
-            <View style={styles.locationRow}>
-              <Feather name="map-pin" size={16} color="#6B7280" />
-              <Text style={styles.locationText}>
-                {specialtyTitle} • {location}
-              </Text>
+
+            <View style={styles.metaRow}>
+              <View style={styles.metaChip}>
+                <Feather name="award" size={14} color={colors.primary} />
+                <Text style={styles.metaChipText}>{specialtyTitle}</Text>
+              </View>
+              {doctorAge ? (
+                <View style={styles.metaChip}>
+                  <Feather name="clock" size={14} color={colors.primary} />
+                  <Text style={styles.metaChipText}>العمر: {doctorAge}</Text>
+                </View>
+              ) : null}
             </View>
 
-            <TouchableOpacity
-              style={styles.openMapButton}
-              onPress={() => openInGoogleMaps({ latitude: locationLat, longitude: locationLng, address: location })}
-            >
-              <Text style={styles.openMapButtonText}>فتح موقع العيادة في خرائط كوكل</Text>
-            </TouchableOpacity>
+            <View style={styles.ratingRow}>
+              <Feather name="star" size={16} color={colors.primary} />
+              <Text style={styles.ratingText}>{ratingText}</Text>
+            </View>
+
+            <View style={styles.locationCard}>
+              <View style={styles.locationRow}>
+                <Feather name="map-pin" size={16} color={colors.textMuted} />
+                <Text style={styles.locationText}>{location}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.openMapButton}
+                onPress={() =>
+                  openInGoogleMaps({
+                    latitude: locationLat,
+                    longitude: locationLng,
+                    address: location,
+                  })
+                }
+              >
+                <Text style={styles.openMapButtonText}>فتح موقع العيادة في خرائط Google</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.section}>
+          <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>عن الطبيب</Text>
             <Text style={styles.sectionBody}>{doctorDescription}</Text>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>معلومات إضافية</Text>
             {certification ? (
-              <Text style={[styles.sectionMeta, styles.sectionMetaLabel]}>
-                الشهادة: {certification}
-              </Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>الشهادة</Text>
+                <Text style={styles.infoValue}>{certification}</Text>
+              </View>
             ) : null}
             {cv ? (
-              <Text style={styles.sectionMeta}>{cv}</Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>السيرة</Text>
+                <Text style={styles.infoValue}>{cv}</Text>
+              </View>
             ) : null}
-            {typeof consultationFee === "number" ? (
-              <Text style={styles.sectionMeta}>قيمة الكشف: {consultationFee} ريال</Text>
+            {formattedConsultationFee ? (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>قيمة الكشف</Text>
+                <Text style={styles.infoValue}>{formattedConsultationFee}</Text>
+              </View>
             ) : null}
             {contactPhone ? (
-              <Text style={styles.sectionMeta}>رقم التواصل: {contactPhone}</Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>رقم التواصل</Text>
+                <Text style={styles.infoValue}>{contactPhone}</Text>
+              </View>
             ) : null}
           </View>
         </ScrollView>
@@ -121,160 +167,222 @@ export default function DoctorDetailsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#fff" },
-  screen: { flex: 1, backgroundColor: "#fff" },
-  headerRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerTextContainer: {
-    flex: 1,
-    alignItems: "flex-end",
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "right",
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-    writingDirection: "rtl",
-  },
-  headerSubtitle: {
-    flex: 1,
-    textAlign: "right",
-    color: "#6B7280",
-    fontSize: 14,
-    writingDirection: "rtl",
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  doctorInfo: {
-    alignItems: "center",
-    paddingVertical: 16,
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
-    backgroundColor: "#DBEAFE",
-    marginBottom: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarImage: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
-  },
-  doctorName: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 4,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  doctorSpecialty: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginBottom: 8,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  ratingRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  ratingText: {
-    marginRight: 4,
-    fontSize: 13,
-    color: "#374151",
-  },
-  locationRow: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-  },
-  locationText: {
-    marginRight: 4,
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  openMapButton: {
-    marginTop: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#0EA5E9",
-    backgroundColor: "#E0F2FE",
-  },
-  openMapButtonText: {
-    color: "#0EA5E9",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-  section: {
-    marginTop: 12,
-    paddingVertical: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 8,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  sectionBody: {
-    fontSize: 14,
-    color: "#4B5563",
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  sectionMeta: {
-    fontSize: 13,
-    color: "#475467",
-    marginTop: 6,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  sectionMetaLabel: {
-    fontWeight: "600",
-    color: "#111827",
-  },
-  footer: {
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    padding: 16,
-    backgroundColor: "#fff",
-  },
-  primaryButton: {
-    backgroundColor: "#0EA5E9",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-});
+const createStyles = (colors) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    screen: { flex: 1, backgroundColor: colors.background },
+    headerRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      paddingHorizontal: 4,
+      paddingVertical: 6,
+    },
+    headerButton: {
+      width: 40,
+      height: 40,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    headerTextContainer: {
+      flex: 1,
+      alignItems: "flex-end",
+    },
+    headerTitle: {
+      textAlign: "right",
+      fontSize: 22,
+      fontWeight: "700",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    headerSubtitle: {
+      textAlign: "right",
+      color: colors.textMuted,
+      fontSize: 13,
+      writingDirection: "rtl",
+      marginBottom: 2,
+    },
+    content: {
+      paddingHorizontal: 20,
+      paddingBottom: 28,
+    },
+    heroCard: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 18,
+      paddingHorizontal: 14,
+    },
+    avatar: {
+      width: 104,
+      height: 104,
+      borderRadius: 26,
+      backgroundColor: colors.primary + "20",
+      marginBottom: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    avatarImage: {
+      width: 104,
+      height: 104,
+      borderRadius: 26,
+    },
+    doctorName: {
+      fontSize: 20,
+      fontWeight: "600",
+      color: colors.text,
+      marginBottom: 4,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    doctorSpecialty: {
+      fontSize: 14,
+      color: colors.textMuted,
+      marginBottom: 12,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    metaRow: {
+      width: "100%",
+      flexDirection: "row-reverse",
+      justifyContent: "center",
+      flexWrap: "wrap",
+      gap: 8,
+      marginBottom: 10,
+    },
+    metaChip: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceAlt,
+    },
+    metaChipText: {
+      fontSize: 12,
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    ratingRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    ratingText: {
+      marginRight: 4,
+      fontSize: 13,
+      color: colors.textMuted,
+    },
+    locationCard: {
+      width: "100%",
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      padding: 10,
+    },
+    locationRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    locationText: {
+      marginRight: 4,
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    openMapButton: {
+      marginTop: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+    },
+    openMapButtonText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "600",
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+    sectionCard: {
+      marginTop: 12,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 14,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      marginBottom: 8,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    sectionBody: {
+      fontSize: 14,
+      color: colors.textMuted,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    sectionMeta: {
+      fontSize: 13,
+      color: colors.textMuted,
+      marginTop: 6,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    sectionMetaLabel: {
+      fontWeight: "600",
+      color: colors.text,
+    },
+    infoRow: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 10,
+      marginTop: 10,
+      gap: 4,
+      alignItems: "flex-end",
+    },
+    infoLabel: {
+      fontSize: 12,
+      color: colors.textMuted,
+      writingDirection: "rtl",
+    },
+    infoValue: {
+      fontSize: 15,
+      color: colors.text,
+      writingDirection: "rtl",
+      textAlign: "right",
+      alignSelf: "stretch",
+    },
+    footer: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      padding: 16,
+      backgroundColor: colors.surface,
+    },
+    primaryButton: {
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: "center",
+    },
+    primaryButtonText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: "#fff",
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+  });

@@ -190,17 +190,17 @@ export default function ProviderProfileScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, { marginTop: 12, backgroundColor: "#EFF6FF" }]}
+          style={[styles.secondaryActionButton, { marginTop: 12 }]}
           onPress={() => navigation.navigate("ProviderServicesTab")}
         >
-          <Text style={[styles.primaryButtonText, { color: "#0EA5E9" }]}>إدارة الخدمات</Text>
+          <Text style={styles.secondaryActionText}>إدارة الخدمات</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.primaryButton, { marginTop: 12, backgroundColor: "#FFFFFF" }]}
+          style={[styles.secondaryActionButton, { marginTop: 12 }]}
           onPress={() => navigation.navigate("ProviderSettingsTab")}
         >
-          <Text style={[styles.primaryButtonText, { color: "#0EA5E9" }]}>الإعدادات</Text>
+          <Text style={styles.secondaryActionText}>الإعدادات</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -446,6 +446,19 @@ const createStyles = (colors) =>
     },
     primaryButtonText: {
       color: colors.surface,
+      fontWeight: "700",
+      fontSize: 15,
+    },
+    secondaryActionButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    secondaryActionText: {
+      color: colors.primary,
       fontWeight: "700",
       fontSize: 15,
     },

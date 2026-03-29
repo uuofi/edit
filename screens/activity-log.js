@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { fetchMyActivity } from "../lib/api";
+import { useAppTheme } from "../lib/useTheme";
 
 const formatDateTime = (iso) => {
   try {
@@ -26,6 +27,8 @@ const formatDateTime = (iso) => {
 
 export default function ActivityLogScreen() {
   const navigation = useNavigation();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -52,17 +55,17 @@ export default function ActivityLogScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Feather name="arrow-right" size={22} color="#111827" />
+          <Feather name="arrow-right" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>سجل النشاط</Text>
         <TouchableOpacity onPress={() => load({ silent: true })} style={styles.iconBtn}>
-          <Feather name="refresh-ccw" size={18} color="#0EA5E9" />
+          <Feather name="refresh-ccw" size={18} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
         <View style={styles.loader}>
-          <ActivityIndicator size="large" color="#0EA5E9" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
         <ScrollView
@@ -74,7 +77,7 @@ export default function ActivityLogScreen() {
                 setRefreshing(true);
                 load({ silent: true });
               }}
-              colors={["#0EA5E9"]}
+              colors={[colors.primary]}
             />
           }
         >
@@ -97,33 +100,34 @@ export default function ActivityLogScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F3F4F6" },
-  header: {
-    height: 56,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  backBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  iconBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontSize: 16, fontWeight: "600", color: "#111827" },
-  loader: { flex: 1, alignItems: "center", justifyContent: "center" },
-  body: { padding: 16 },
-  empty: { color: "#6B7280", textAlign: "center", marginTop: 20 },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 10,
-  },
-  action: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  meta: { fontSize: 12, color: "#6B7280", marginTop: 4 },
-  details: { fontSize: 13, color: "#4B5563", marginTop: 8, lineHeight: 18 },
-});
+const createStyles = (colors) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.surfaceAlt },
+    header: {
+      height: 56,
+      backgroundColor: colors.surface,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+    iconBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+    headerTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
+    loader: { flex: 1, alignItems: "center", justifyContent: "center" },
+    body: { padding: 16 },
+    empty: { color: colors.textMuted, textAlign: "center", marginTop: 20 },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 10,
+    },
+    action: { fontSize: 14, fontWeight: "700", color: colors.text },
+    meta: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+    details: { fontSize: 13, color: colors.textMuted, marginTop: 8, lineHeight: 18 },
+  });

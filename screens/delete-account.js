@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Linking,
 } from "react-native";
+import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -21,6 +23,14 @@ export default function DeleteAccountScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [password, setPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
+
+  const extra =
+    Constants?.expoConfig?.extra ||
+    Constants?.manifest?.extra ||
+    Constants?.manifest2?.extra ||
+    {};
+  const accountDeletionUrl =
+    String(extra?.accountDeletionUrl || "https://medicare-iq.com/account-deletion").trim();
 
   const handleDelete = () => {
     if (deleting) return;
@@ -42,6 +52,15 @@ export default function DeleteAccountScreen() {
             try {
               await deleteMyAccount(password);
               await logout();
+
+              if (accountDeletionUrl) {
+                try {
+                  await Linking.openURL(accountDeletionUrl);
+                } catch (_openErr) {
+                  Alert.alert("تنبيه", "تم حذف الحساب، لكن تعذّر فتح صفحة تأكيد الحذف.");
+                }
+              }
+
               navigation.reset({ index: 0, routes: [{ name: "RoleSelection" }] });
               Alert.alert("تم", "تم حذف الحساب بنجاح");
             } catch (err) {
@@ -123,7 +142,7 @@ const createStyles = (colors) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
-    warningTitle: { fontSize: 16, fontWeight: "700", color: "#DC2626" },
+    warningTitle: { fontSize: 16, fontWeight: "700", color: colors.danger },
     warningText: { fontSize: 14, color: colors.textMuted, marginTop: 6, lineHeight: 20 },
     label: { fontSize: 13, color: colors.textMuted, marginTop: 14 },
     input: {
@@ -139,7 +158,7 @@ const createStyles = (colors) =>
     },
     dangerBtn: {
       marginTop: 16,
-      backgroundColor: "#DC2626",
+      backgroundColor: colors.danger,
       borderRadius: 12,
       paddingVertical: 12,
       alignItems: "center",

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   TouchableOpacity,
@@ -8,6 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useAppTheme } from "../lib/useTheme";
 
 import BookingSummaryScreen from "./my-appointments";
 // غيّر المسار حسب مشروعك إذا لازم
@@ -16,6 +17,8 @@ import { fetchDoctorDashboard } from "../lib/api";
 export default function BookingSummaryTabScreen() {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const handleAddAppointment = async () => {
     setLoading(true);
@@ -70,26 +73,27 @@ export default function BookingSummaryTabScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  addButton: {
-    position: "absolute",
-    bottom: 24,
-    right: 20,
-    left: 20,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: "#0EA5E9",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  addButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-});
+const createStyles = (colors) =>
+  StyleSheet.create({
+    addButton: {
+      position: "absolute",
+      bottom: 24,
+      right: 20,
+      left: 20,
+      height: 52,
+      borderRadius: 16,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.2,
+      shadowOffset: { width: 0, height: 3 },
+      shadowRadius: 6,
+      elevation: 4,
+    },
+    addButtonText: {
+      color: "#fff",
+      fontSize: 16,
+      fontWeight: "600",
+    },
+  });

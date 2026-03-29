@@ -89,34 +89,34 @@ export default function ProfileScreen() {
         <View style={styles.menuList}>
           <MenuItem
             icon="user"
-            iconBg="#EFF6FF"
-            iconColor="#0EA5E9"
+            iconBg={colors.primary + '15'}
+            iconColor={colors.primary}
             title="المعلومات الشخصية"
             onPress={() => navigation.navigate("PersonalInfo")}
             styles={styles}
           />
           <MenuItem
             icon="settings"
-            iconBg="#ECFDF3"
-            iconColor="#16A34A"
+            iconBg={colors.success + '20'}
+            iconColor={colors.success}
             title="الإعدادات"
             onPress={() => navigation.navigate("ProfileSettings")}
             styles={styles}
           />
           <MenuItem
             icon="help-circle"
-            iconBg="#FFF7ED"
-            iconColor="#000000ff"
+            iconBg={colors.warning + '20'}
+            iconColor={colors.warning}
             title="مساعدة ودعم"
             onPress={() => navigation.navigate("Support")}
             styles={styles}
           />
           <MenuItem
             icon="log-out"
-            iconBg="#FEF2F2"
-            iconColor="#DC2626"
+            iconBg={colors.danger + '15'}
+            iconColor={colors.danger}
             title="تسجيل خروج"
-            titleColor="#DC2626"
+            titleColor={colors.danger}
             borderRed
             onPress={handleLogout}
             styles={styles}
@@ -145,7 +145,7 @@ function MenuItem({
     <TouchableOpacity
       style={[
         styles.menuItem,
-        borderRed && { borderWidth: 2, borderColor: "#FEE2E2" },
+        borderRed && { borderWidth: 2, borderColor: colors.danger + '30' },
       ]}
       onPress={onPress}
       activeOpacity={onPress ? 0.7 : 1}
