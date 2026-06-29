@@ -1,5 +1,5 @@
 // screens/lab-dashboard.js — لوحة تحكم المختبر
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   ScrollView, View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, RefreshControl,

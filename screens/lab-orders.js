@@ -8,7 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import {
-  fetchLabOrders, createLabOrder, fetchLabTests, updateLabOrder,
+  fetchLabOrders, createLabOrder, fetchLabTests,
 } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 

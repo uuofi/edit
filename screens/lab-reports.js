@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
-import { fetchLabDashboard, fetchLabOrders } from "../lib/api";
+import { fetchLabDashboard } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
 const TL  = "#0D9488";

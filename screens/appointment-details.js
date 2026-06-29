@@ -20,8 +20,8 @@ import {
   getUserRole,
   fetchAppointment,
   rateAppointment,
-} from "../lib/api";
-import { logout } from "../lib/api";
+ logout } from "../lib/api";
+
 import { openInGoogleMaps } from "../lib/maps";
 import { useAppTheme } from "../lib/useTheme";
 
@@ -51,8 +51,6 @@ export default function AppointmentDetailsScreen() {
   const locationLng = typeof rawLng === "number" ? rawLng : Number(rawLng);
   const appointmentDate = params.date || params.appointmentDate || "";
   const appointmentTime = params.time || params.appointmentTime || "";
-  const contactNumber =
-    params.contactNumber || params.doctorPhone || params.clinicPhone || "";
   const secretaryPhone =
     params.secretaryPhone || doctorProfile?.secretaryPhone || "";
   const consultationFee =
@@ -69,7 +67,6 @@ export default function AppointmentDetailsScreen() {
     params.biography || params.aboutDoctor || "لا توجد نبذة متاحة.";
   const initialQrSource =
     params.qrSource || params.qrCodeUrl || params.qrCode || null;
-  const initialQrPayload = params.qrPayload || null;
   const createdByDoctor = !!(params.createdByDoctor || params.manualFromDoctor);
   const doctorNote = params.doctorNote || "";
   const doctorPrescriptions = params.doctorPrescriptions || [];
@@ -88,7 +85,6 @@ export default function AppointmentDetailsScreen() {
   );
 
   const [qrSource, setQrSource] = useState(initialQrSource);
-  const [qrPayload, setQrPayload] = useState(initialQrPayload);
 
   // ====== State ======
   const [statusKey, setStatusKey] = useState(initialStatus);
@@ -115,7 +111,7 @@ export default function AppointmentDetailsScreen() {
       try {
         const role = await getUserRole();
         if (mounted) setUserRole(role);
-      } catch (e) {
+      } catch (_e) {
         // تجاهل الخطأ، مو ضروري نوقف الشاشة
       }
     })();
@@ -134,7 +130,6 @@ export default function AppointmentDetailsScreen() {
         const appt = data?.appointment;
         if (!mounted || !appt) return;
         if (appt.qrCode) setQrSource(appt.qrCode);
-        if (appt.qrPayload) setQrPayload(appt.qrPayload);
         const nextScore = Number(appt.patientRatingScore);
         if (Number.isFinite(nextScore) && nextScore >= 1 && nextScore <= 5) {
           setRatingScore(Math.round(nextScore));
@@ -214,6 +209,7 @@ export default function AppointmentDetailsScreen() {
 
   const canRateAppointment =
     userRole === "patient" && statusKey === "completed" && !!appointmentId;
+  const canOpenChat = Boolean(appointmentId);
 
   const submitRating = async () => {
     if (!canRateAppointment) return;
@@ -584,6 +580,20 @@ export default function AppointmentDetailsScreen() {
           )}
 
           <TouchableOpacity
+            style={[styles.chatButton, !canOpenChat && styles.contactButtonDisabled]}
+            disabled={!canOpenChat}
+            onPress={() =>
+              navigation.navigate("AppointmentChat", {
+                appointmentId,
+                doctorName,
+              })
+            }
+          >
+            <Feather name="message-circle" size={18} color="#fff" />
+            <Text style={styles.chatButtonText}>محادثة الطبيب</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[
               styles.contactButton,
               !secretaryPhone && styles.contactButtonDisabled,
@@ -942,6 +952,23 @@ const createStyles = (colors, isDark) =>
     borderRadius: 12,
     paddingVertical: 12,
     marginBottom: 8,
+  },
+  chatButton: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  chatButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "right",
+    writingDirection: "rtl",
   },
   contactButtonDisabled: {
     backgroundColor: colors.border,

@@ -1,5 +1,5 @@
 // app/profile.js
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ export default function ProfileScreen() {
     try {
       const token = await getToken();
       if (!token) {
+        await logout();
         navigation.replace("Login");
         return;
       }
@@ -32,18 +33,12 @@ export default function ProfileScreen() {
       const data = await request("/api/auth/me");
       setUser(data.user || data);
     } catch (err) {
-      console.log("Profile error:", err);
       if (err.status === 401 || err.status === 403) {
-        Alert.alert("انتهت الجلسة", "يرجى تسجيل الدخول من جديد.", [
-          { text: "إلغاء", style: "cancel" },
-          {
-            text: "تسجيل الدخول",
-            onPress: () => logout().finally(() => navigation.replace("Login")),
-          },
-        ]);
+        await logout();
+        navigation.replace("Login");
         return;
       }
-      Alert.alert("Error", "Could not load profile");
+      Alert.alert("خطأ", "تعذّر تحميل الملف الشخصي، حاول مرة أخرى");
     }
   }, [navigation]);
 
@@ -51,10 +46,6 @@ export default function ProfileScreen() {
     await logout();
     navigation.replace("Login");
   };
-
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
 
   useFocusEffect(
     useCallback(() => {

@@ -135,13 +135,6 @@ export default function CenterDoctorsScreen() {
     .slice()
     .sort(compareDoctorsByRating);
 
-  const doctorStats = useMemo(() => {
-    return {
-      total: doctors.length,
-      visible: visibleDoctors.length,
-    };
-  }, [doctors.length, visibleDoctors.length]);
-
   const normalizedIndex = Math.min(
     selectedDoctorIndex,
     Math.max(visibleDoctors.length - 1, 0)

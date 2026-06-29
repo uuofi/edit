@@ -13,9 +13,7 @@ import {
 import { useAppTheme } from "../lib/useTheme";
 
 const TL  = "#0D9488";
-const TLL = "#CCFBF1";
 const RED = "#EF4444";
-const AMB = "#F59E0B";
 
 const FLAG_OPTIONS = [
   { key: "",             label: "—",      bg: "#F1F5F9", fg: "#64748B" },

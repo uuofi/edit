@@ -12,20 +12,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { useAppTheme } from "../lib/useTheme";
+import { CONTACT_LINKS, getSupportWhatsAppNumber } from "../lib/supportConfig";
 
-const CONTACT_LINKS = {
-  whatsapp: "https://wa.me/9647817706168",
-  telegram: "https://t.me/medicareiq",
-  instagram: "https://www.instagram.com/medicare.iq/",
-  facebook: "https://www.facebook.com/share/184GkSfg6V/?mibextid=wwXIfr",
-  email: "mailto:medicare410@gmail.com",
-};
+const SUPPORT_WHATSAPP_NUMBER = getSupportWhatsAppNumber();
 
 const contactItems = [
   {
     icon: "message-circle",
     title: "واتساب",
-    subtitle: "9647817706168+",
+    subtitle: SUPPORT_WHATSAPP_NUMBER ? `+${SUPPORT_WHATSAPP_NUMBER}` : "",
     url: CONTACT_LINKS.whatsapp,
     tone: "success",
   },

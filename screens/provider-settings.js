@@ -13,7 +13,7 @@ import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { logout, logoutAllDevices } from "../lib/api";
+import { getUserRole, logout, logoutAllDevices } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 import { useThemePreference } from "../lib/ThemeProvider";
 import useOTAUpdates from "../lib/useOTAUpdates";
@@ -22,10 +22,26 @@ import useOTAUpdates from "../lib/useOTAUpdates";
 export default function ProviderSettingsScreen() {
   const navigation = useNavigation();
   const [busy, setBusy] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const { colors, isDark } = useAppTheme();
   const pref = useThemePreference();
   const { isChecking, isDownloading, checkManually } = useOTAUpdates();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const role = await getUserRole();
+        if (mounted) setUserRole(role || null);
+      } catch {
+        if (mounted) setUserRole(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const extra =
     Constants?.expoConfig?.extra ||
@@ -134,6 +150,20 @@ export default function ProviderSettingsScreen() {
           </View>
           <Feather name="chevron-left" size={20} color={colors.textMuted} />
         </TouchableOpacity>
+
+        {userRole === "doctor" ? (
+          <TouchableOpacity
+            style={[styles.actionCard, busy && { opacity: 0.7 }]}
+            onPress={() => navigation.navigate("BlockedPatients")}
+            disabled={busy}
+          >
+            <View style={styles.actionLeft}>
+              <Feather name="slash" size={20} color={colors.primary} />
+              <Text style={styles.actionText}>المحظورون من الرسائل</Text>
+            </View>
+            <Feather name="chevron-left" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           style={[styles.actionCard, busy && { opacity: 0.7 }]}

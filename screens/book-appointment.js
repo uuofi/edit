@@ -29,6 +29,26 @@ import {
   WEEKDAY_KEYS,
 } from "../lib/constants/schedule";
 
+// أعمدة التقويم تبدأ من السبت (مطابق للصورة): السبت ← الجمعة
+const CALENDAR_DAY_KEYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"];
+const CALENDAR_HEADER_LABELS = {
+  sun: "الأحد",
+  mon: "الإثنين",
+  tue: "الثلاثاء",
+  wed: "الأربعاء",
+  thu: "الخميس",
+  fri: "الجمعة",
+  sat: "السبت",
+};
+// كم شهرًا للأمام يُسمح بالتنقل إليه
+const MAX_MONTHS_AHEAD = 6;
+// الخطوات الثلاث
+const STEPS = [
+  { id: 1, label: "الخدمة", title: "اختر الخدمة" },
+  { id: 2, label: "التاريخ", title: "اختر التاريخ" },
+  { id: 3, label: "الوقت", title: "اختر الوقت" },
+];
+
 const parseMinutes = (value) => {
   const [hours = 0, minutes = 0] = value
     .split(":")
@@ -107,31 +127,24 @@ const toLocalIso = (d) => {
   return `${y}-${m}-${day}`;
 };
 
-const getNextActiveDates = (activeDays, count = 5) => {
-  const workingDays =
-    Array.isArray(activeDays) && activeDays.length
-      ? activeDays
-      : DEFAULT_SCHEDULE.activeDays;
-  const dates = [];
-  const pointer = new Date();
-  pointer.setHours(0, 0, 0, 0);
+/** يبني وصف التاريخ (يوم/رقم/iso) من سلسلة YYYY-MM-DD محليًا. */
+const buildDateDescriptor = (iso) => {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  const dayKey = WEEKDAY_KEYS[dt.getDay()];
+  return {
+    iso,
+    day: DAY_LABELS[dayKey] || dayKey,
+    displayDate: dt.toLocaleDateString("ar-EG", { day: "numeric" }),
+  };
+};
 
-  while (dates.length < count) {
-    const dayKey = WEEKDAY_KEYS[pointer.getDay()];
-    if (workingDays.includes(dayKey)) {
-      const localIso = toLocalIso(pointer);
-      dates.push({
-        key: `${dayKey}-${localIso}`,
-        day: DAY_LABELS[dayKey] || dayKey,
-        displayDate: pointer
-          .toLocaleDateString("ar-EG", { day: "numeric" }),
-        iso: localIso,
-      });
-    }
-    pointer.setDate(pointer.getDate() + 1);
-  }
-
-  return dates;
+const startOfDay = (d) => {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
 };
 
 export default function BookAppointmentScreen() {
@@ -159,8 +172,9 @@ export default function BookAppointmentScreen() {
   const isValidObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || ""));
   const isCenterBookingContext =
     isValidObjectId(medicalCenterId) && isValidObjectId(doctorCenterId);
-  
-  const [selectedDateIndex, setSelectedDateIndex] = useState(null);
+
+  const [step, setStep] = useState(1);
+  const [selectedDateIso, setSelectedDateIso] = useState(null);
   const [selectedTimeIndex, setSelectedTimeIndex] = useState(null);
   const [services, setServices] = useState([]);
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -173,27 +187,6 @@ export default function BookAppointmentScreen() {
     selectedServiceIndex !== null ? services[selectedServiceIndex] : null;
 
   const selectedServiceId = selectedService?._id || null;
-  const selectedServiceOriginalPrice =
-    typeof selectedService?.originalPrice === "number"
-      ? selectedService.originalPrice
-      : typeof selectedService?.price === "number"
-        ? selectedService.price
-        : Number(selectedService?.price) || null;
-  const selectedServiceDiscountPercent =
-    typeof selectedService?.discountPercent === "number"
-      ? selectedService.discountPercent
-      : Number(selectedService?.discountPercent) || 0;
-  const selectedServiceDiscountedPrice =
-    typeof selectedService?.discountedPrice === "number"
-      ? selectedService.discountedPrice
-      : null;
-  const selectedServicePrice =
-    Number.isFinite(selectedServiceDiscountedPrice)
-      ? selectedServiceDiscountedPrice
-      : selectedServiceOriginalPrice;
-  const selectedServiceHasDiscount =
-    Number(selectedServiceDiscountPercent) > 0 &&
-    Number(selectedServicePrice) < Number(selectedServiceOriginalPrice);
   const selectedServiceDuration =
     typeof selectedService?.durationMinutes === "number"
       ? selectedService.durationMinutes
@@ -233,8 +226,6 @@ export default function BookAppointmentScreen() {
     }
     return doctorSchedule.duration;
   }, [doctorSchedule.duration, selectedServiceDuration]);
-
-  // no server fetch — rely on params.schedule if provided
 
   const baseTimeSlotOptions = useMemo(
     () =>
@@ -319,21 +310,111 @@ export default function BookAppointmentScreen() {
     };
   }, [doctorId]);
 
-  const availableDates = useMemo(
-    () => getNextActiveDates(doctorSchedule.activeDays, 5),
+  // الأيام التي يعمل بها الطبيب + الأيام المعطّلة
+  const activeDaysSet = useMemo(
+    () => new Set(doctorSchedule.activeDays || []),
     [doctorSchedule.activeDays]
   );
+  const disabledDatesSet = useMemo(
+    () =>
+      new Set(
+        Array.isArray(doctorSchedule.disabledDates) ? doctorSchedule.disabledDates : []
+      ),
+    [doctorSchedule.disabledDates]
+  );
+  const hasAnyActiveDay = activeDaysSet.size > 0;
 
-  const selectedDate =
-    selectedDateIndex !== null ? availableDates[selectedDateIndex] : null;
-  const selectedDateIso = selectedDate?.iso;
+  // الشهر المعروض في التقويم (اليوم الأول من الشهر)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  const todayIso = useMemo(() => toLocalIso(startOfDay(new Date())), []);
+
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDate = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // عمود اليوم الأول (السبت = 0)
+    const firstCol = (firstDate.getDay() + 1) % 7;
+    const today = startOfDay(new Date());
+
+    const cells = [];
+    for (let i = 0; i < firstCol; i += 1) {
+      cells.push({ type: "blank", key: `blank-${year}-${month}-${i}` });
+    }
+    for (let d = 1; d <= daysInMonth; d += 1) {
+      const dt = new Date(year, month, d);
+      const iso = toLocalIso(dt);
+      const dayKey = WEEKDAY_KEYS[dt.getDay()];
+      const isPast = startOfDay(dt) < today;
+      const selectable =
+        !isPast && activeDaysSet.has(dayKey) && !disabledDatesSet.has(iso);
+      cells.push({
+        type: "day",
+        key: iso,
+        iso,
+        day: d,
+        selectable,
+        isToday: iso === todayIso,
+      });
+    }
+    return cells;
+  }, [calendarMonth, activeDaysSet, disabledDatesSet, todayIso]);
+
+  const monthLabel = useMemo(
+    () =>
+      calendarMonth.toLocaleDateString("ar-EG", {
+        month: "long",
+        year: "numeric",
+      }),
+    [calendarMonth]
+  );
+
+  const monthBounds = useMemo(() => {
+    const now = new Date();
+    const minIndex = now.getFullYear() * 12 + now.getMonth();
+    const maxIndex = minIndex + MAX_MONTHS_AHEAD;
+    const currentIndex = calendarMonth.getFullYear() * 12 + calendarMonth.getMonth();
+    return {
+      canGoPrev: currentIndex > minIndex,
+      canGoNext: currentIndex < maxIndex,
+    };
+  }, [calendarMonth]);
+
+  const goPrevMonth = () => {
+    if (!monthBounds.canGoPrev) return;
+    setCalendarMonth(
+      new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1)
+    );
+  };
+  const goNextMonth = () => {
+    if (!monthBounds.canGoNext) return;
+    setCalendarMonth(
+      new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1)
+    );
+  };
+
+  const selectedDateFullLabel = useMemo(() => {
+    if (!selectedDateIso) return "";
+    const [y, m, d] = selectedDateIso.split("-").map(Number);
+    if (!y || !m || !d) return "";
+    const dt = new Date(y, m - 1, d);
+    return dt.toLocaleDateString("ar-EG", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, [selectedDateIso]);
 
   const filteredTimeSlotOptions = useMemo(() => {
     if (!selectedDateIso) {
       return baseTimeSlotOptions;
     }
     const blockedForDate = blockedSlots[selectedDateIso] || [];
-    console.warn("[debug] base slots count:", baseTimeSlotOptions.length, "blocked for", selectedDateIso, blockedForDate.length);
     if (!blockedForDate.length) {
       return baseTimeSlotOptions;
     }
@@ -358,6 +439,21 @@ export default function BookAppointmentScreen() {
       return true;
     });
   }, [baseTimeSlotOptions, selectedDateIso, blockedSlots, doctorSchedule.duration, effectiveSlotDuration]);
+
+  // تقسيم الأوقات إلى صباحًا / مساءً مع الحفاظ على الفهرس الأصلي
+  const { morningSlots, eveningSlots } = useMemo(() => {
+    const morning = [];
+    const evening = [];
+    filteredTimeSlotOptions.forEach((slot, index) => {
+      const entry = { ...slot, index };
+      if (parseMinutes(slot.value) < 12 * 60) {
+        morning.push(entry);
+      } else {
+        evening.push(entry);
+      }
+    });
+    return { morningSlots: morning, eveningSlots: evening };
+  }, [filteredTimeSlotOptions]);
 
   const markSlotBlocked = (dateIso, timeValue) => {
     if (!dateIso || !timeValue) {
@@ -418,7 +514,6 @@ export default function BookAppointmentScreen() {
       .then((data) => {
         if (!isActive) return;
         const slots = data.blockedSlots || {};
-        console.warn("[debug] fetchDoctorBlockedSlots result:", slots);
         setBlockedSlots(slots);
       })
       .catch((err) => {
@@ -440,16 +535,7 @@ export default function BookAppointmentScreen() {
 
   useFocusEffect(loadBlockedSlots);
 
-  useEffect(() => {
-    if (availableDates.length === 0) {
-      setSelectedDateIndex(null);
-      return;
-    }
-    if (selectedDateIndex !== null && selectedDateIndex >= availableDates.length) {
-      setSelectedDateIndex(null);
-    }
-  }, [availableDates, selectedDateIndex]);
-
+  // إعادة ضبط فهرس الوقت إذا أصبح خارج النطاق بعد فلترة المحجوز
   useEffect(() => {
     if (filteredTimeSlotOptions.length === 0) {
       setSelectedTimeIndex(null);
@@ -463,18 +549,63 @@ export default function BookAppointmentScreen() {
     }
   }, [filteredTimeSlotOptions, selectedTimeIndex]);
 
+  const handleSelectService = (idx) => {
+    setSelectedServiceIndex(idx);
+    // تغيّر مدة الخدمة قد يغيّر المواعيد المتاحة → أعد ضبط الوقت
+    setSelectedTimeIndex(null);
+  };
+
+  const handleSelectDate = (iso) => {
+    setSelectedDateIso(iso);
+    setSelectedTimeIndex(null);
+  };
+
+  const handleBack = () => {
+    if (step > 1) {
+      setStep(step - 1);
+      return;
+    }
+    navigation.goBack();
+  };
+
+  const handleNext = () => {
+    if (step === 1) {
+      if (servicesLoading) {
+        Alert.alert("انتظر قليلاً", "جاري تحميل خدمات الطبيب...");
+        return;
+      }
+      if (services.length > 0 && selectedServiceIndex === null) {
+        Alert.alert("اختر الخدمة", "يُرجى اختيار خدمة قبل المتابعة.");
+        return;
+      }
+      setStep(2);
+      return;
+    }
+    if (step === 2) {
+      if (!hasAnyActiveDay) {
+        Alert.alert("لا توجد مواعيد", "الطبيب لم يحدد أي أيام متاحة حاليًا.");
+        return;
+      }
+      if (!selectedDateIso) {
+        Alert.alert("اختر التاريخ", "يُرجى اختيار يوم قبل المتابعة.");
+        return;
+      }
+      setStep(3);
+    }
+  };
+
   const handleConfirm = async () => {
     if (loading) return;
     if (servicesLoading) {
       Alert.alert("انتظر قليلاً", "جاري تحميل خدمات الطبيب...");
       return;
     }
-    if (selectedDateIndex === null || selectedTimeIndex === null) {
+    if (!selectedDateIso || selectedTimeIndex === null) {
       Alert.alert("يُرجى اختيار التاريخ والوقت", "اختر يومًا ووقتًا قبل المتابعة.");
       return;
     }
 
-    const selectedDate = availableDates[selectedDateIndex];
+    const selectedDate = buildDateDescriptor(selectedDateIso);
     const selectedSlot = filteredTimeSlotOptions[selectedTimeIndex];
 
     if (!selectedDate || !selectedSlot) {
@@ -558,213 +689,386 @@ export default function BookAppointmentScreen() {
     }
   };
 
-  const hasDates = availableDates.length > 0;
   const hasSlots = filteredTimeSlotOptions.length > 0;
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* loader for server schedule removed — use params.schedule when provided */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Feather name="chevron-right" size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.title}>حدد الموعد</Text>
-          <View style={styles.backButton} />
-        </View>
+  // تعطيل زر القدم لكل خطوة
+  const isFooterDisabled = useMemo(() => {
+    if (loading) return true;
+    if (step === 1) {
+      return servicesLoading || (services.length > 0 && selectedServiceIndex === null);
+    }
+    if (step === 2) {
+      return !hasAnyActiveDay || !selectedDateIso;
+    }
+    // step 3
+    return !hasSlots || selectedTimeIndex === null;
+  }, [
+    loading,
+    step,
+    servicesLoading,
+    services.length,
+    selectedServiceIndex,
+    hasAnyActiveDay,
+    selectedDateIso,
+    hasSlots,
+    selectedTimeIndex,
+  ]);
 
-        <View style={styles.doctorCard}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.doctorAvatar} />
-          ) : (
-            <View style={styles.avatar} />
-          )}
-          <View style={styles.doctorInfo}>
-            <Text style={styles.doctorName}>{doctorName || "اسم الطبيب غير متوفر"}</Text>
-            <Text style={styles.doctorRole}>{doctorRole || "الاختصاص غير متوفر"}</Text>
-            <Text style={styles.specialtyText}>{specialty || "التخصص غير متوفر"}</Text>
-          </View>
-        </View>
+  const activeStep = STEPS.find((s) => s.id === step) || STEPS[0];
 
-        {/* Services */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>اختر الخدمة</Text>
-          {servicesLoading ? (
-            <View style={{ paddingVertical: 12 }}>
-              <ActivityIndicator size="small" color={colors.primary} />
-            </View>
-          ) : services.length === 0 ? (
-            <Text style={styles.helperText}>
-              لا توجد خدمات مضافة لهذا الطبيب حالياً.
-            </Text>
-          ) : (
-            <View style={{ marginTop: 10 }}>
-              {services.map((svc, idx) => {
-                const active = idx === selectedServiceIndex;
-                return (
-                  <TouchableOpacity
-                    key={svc._id || `${idx}`}
-                    style={[styles.optionRow, active && styles.optionRowActive]}
-                    onPress={() => {
-                      setSelectedServiceIndex(idx);
-                      // reset slot selection when duration changes
-                      setSelectedTimeIndex(null);
-                    }}
-                    activeOpacity={0.8}
+  const renderStepIndicator = () => (
+    <View style={styles.stepperRow}>
+      {STEPS.map((s, idx) => {
+        const isDone = s.id < step;
+        const isCurrent = s.id === step;
+        const circleStyle = [
+          styles.stepCircle,
+          (isDone || isCurrent) && styles.stepCircleActive,
+        ];
+        return (
+          <React.Fragment key={s.id}>
+            <View style={styles.stepItem}>
+              <View style={circleStyle}>
+                {isDone ? (
+                  <Feather name="check" size={16} color="#fff" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.stepNumber,
+                      isCurrent && styles.stepNumberActive,
+                    ]}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.optionTitle, active && styles.optionTitleActive]}>
-                        {svc.name}
-                      </Text>
-                      {Number(svc?.discountPercent) > 0 && Number(svc?.discountedPrice) < Number(svc?.originalPrice ?? svc?.price) ? (
-                        <View style={styles.optionDiscountRow}>
-                          <Text style={styles.optionPriceOld}>
-                            {formatCurrency(svc?.originalPrice ?? svc?.price)}
-                          </Text>
-                          <Text style={styles.optionMetaStrong}>
-                            {formatCurrency(svc.discountedPrice)} • {svc.durationMinutes} دقيقة
-                          </Text>
-                          <View style={styles.discountBadgeInline}>
-                            <Text style={styles.discountBadgeInlineText}>
-                              خصم {Math.round(Number(svc.discountPercent) || 0)}%
-                            </Text>
-                          </View>
-                        </View>
-                      ) : (
-                        <Text style={styles.optionMeta}>
-                          {formatCurrency(svc.price)} • {svc.durationMinutes} دقيقة
-                        </Text>
-                      )}
-                    </View>
-                    {active ? (
-                      <Feather name="check-circle" size={18} color={colors.primary} />
-                    ) : (
-                      <Feather name="circle" size={18} color={colors.placeholder} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {selectedServicePrice !== null ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>السعر</Text>
-              <View style={styles.priceValuesWrap}>
-                {selectedServiceHasDiscount ? (
-                  <Text style={styles.priceValueOld}>{formatCurrency(selectedServiceOriginalPrice)}</Text>
-                ) : null}
-                <Text style={styles.priceValue}>{formatCurrency(selectedServicePrice)}</Text>
+                    {s.id}
+                  </Text>
+                )}
               </View>
+              <Text
+                style={[
+                  styles.stepLabel,
+                  (isDone || isCurrent) && styles.stepLabelActive,
+                ]}
+              >
+                {s.label}
+              </Text>
             </View>
-          ) : null}
-        </View>
+            {idx < STEPS.length - 1 ? (
+              <View
+                style={[
+                  styles.stepConnector,
+                  s.id < step && styles.stepConnectorActive,
+                ]}
+              />
+            ) : null}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>اختر التاريخ</Text>
-          {hasDates ? (
-            <View style={styles.dateRow}>
-              {availableDates.map((date, index) => {
-                const isActive = index === selectedDateIndex;
-                return (
-                  <TouchableOpacity
-                    key={date.key}
-                    style={[styles.dateChip, isActive && styles.dateChipActive]}
-                    onPress={() => setSelectedDateIndex(index)}
-                  >
-                    <Text
-                      style={[styles.dateChipDay, isActive && styles.dateChipDayActive]}
-                    >
-                      {date.day}
-                    </Text>
-                    <Text
-                      style={[styles.dateChipDate, isActive && styles.dateChipDateActive]}
-                    >
-                      {date.displayDate}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ) : (
-            <Text style={styles.emptyStateText}>
-              الطبيب لم يحدد أي أيام متاحة حاليًا.
-            </Text>
-          )}
+  const renderServiceStep = () => {
+    if (servicesLoading) {
+      return (
+        <View style={{ paddingVertical: 24 }}>
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>اختر الوقت</Text>
-          {blockedLoading && (
-            <Text style={styles.blockedNotice}>
-              جاري مزامنة المواعيد المحجوزة مع العيادة...
-            </Text>
-          )}
-          {selectedDateIso && (blockedSlots[selectedDateIso]?.length || 0) > 0 && (
-            <Text style={styles.blockedNotice}>
-              تم حجز {blockedSlots[selectedDateIso].length} وقتًا لهذا اليوم، ولن تظهر مجددًا.
-            </Text>
-          )}
-          {hasSlots ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.timeRow}
+      );
+    }
+    if (services.length === 0) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.helperText}>
+            لا توجد خدمات مضافة لهذا الطبيب حالياً، يمكنك المتابعة لاختيار الموعد.
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.card}>
+        <View style={styles.serviceHeaderRow}>
+          <Text style={styles.serviceHeaderText}>الخدمات</Text>
+          <Text style={styles.serviceHeaderText}>تفاصيل السعر</Text>
+        </View>
+        {services.map((svc, idx) => {
+          const active = idx === selectedServiceIndex;
+          const hasDiscount =
+            Number(svc?.discountPercent) > 0 &&
+            Number(svc?.discountedPrice) < Number(svc?.originalPrice ?? svc?.price);
+          return (
+            <TouchableOpacity
+              key={svc._id || `${idx}`}
+              style={[
+                styles.serviceRow,
+                idx === services.length - 1 && styles.serviceRowLast,
+              ]}
+              onPress={() => handleSelectService(idx)}
+              activeOpacity={0.7}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`${svc.name}`}
             >
-              {filteredTimeSlotOptions.map((slot, index) => {
-                const isActive = index === selectedTimeIndex;
-                return (
-                  <TouchableOpacity
-                    key={`${slot.value}-${index}`}
-                    style={[styles.timeChip, isActive && styles.timeChipActive]}
-                    onPress={() => setSelectedTimeIndex(index)}
-                  >
-                    <Text
-                      style={[
-                        styles.timeChipText,
-                        isActive && styles.timeChipTextActive,
-                        !isActive && { color: colors.text, fontWeight: 'bold' }
-                      ]}
-                    >
-                      {slot.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          ) : (
-            <Text style={styles.emptyStateText}>
-              لا توجد مواعيد ضمن الإطار الزمني الحالي.
-            </Text>
-          )}
+              <View style={styles.serviceNameWrap}>
+                <Text
+                  style={[styles.serviceName, active && styles.serviceNameActive]}
+                  numberOfLines={2}
+                >
+                  {svc.name}
+                </Text>
+                <Feather
+                  name={active ? "check-circle" : "circle"}
+                  size={20}
+                  color={active ? colors.primary : colors.placeholder}
+                  style={styles.serviceRadio}
+                />
+              </View>
+              <View style={styles.servicePriceWrap}>
+                {hasDiscount ? (
+                  <Text style={styles.servicePriceOld}>
+                    {formatCurrency(svc?.originalPrice ?? svc?.price)}
+                  </Text>
+                ) : null}
+                <Text style={[styles.servicePrice, active && styles.servicePriceActive]}>
+                  {formatCurrency(hasDiscount ? svc.discountedPrice : svc.price)}
+                </Text>
+                {Number(svc?.durationMinutes) > 0 ? (
+                  <Text style={styles.serviceDuration}>{svc.durationMinutes} دقيقة</Text>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderDateStep = () => {
+    if (!hasAnyActiveDay) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.emptyStateText}>
+            الطبيب لم يحدد أي أيام متاحة حاليًا.
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.card}>
+        {/* تنقّل بين الأشهر */}
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity
+            onPress={goNextMonth}
+            disabled={!monthBounds.canGoNext}
+            style={styles.calendarNavBtn}
+            accessibilityRole="button"
+            accessibilityLabel="الشهر التالي"
+          >
+            <Feather
+              name="chevron-left"
+              size={24}
+              color={monthBounds.canGoNext ? colors.text : colors.placeholder}
+            />
+          </TouchableOpacity>
+          <Text style={styles.calendarMonthLabel}>{monthLabel}</Text>
+          <TouchableOpacity
+            onPress={goPrevMonth}
+            disabled={!monthBounds.canGoPrev}
+            style={styles.calendarNavBtn}
+            accessibilityRole="button"
+            accessibilityLabel="الشهر السابق"
+          >
+            <Feather
+              name="chevron-right"
+              size={24}
+              color={monthBounds.canGoPrev ? colors.text : colors.placeholder}
+            />
+          </TouchableOpacity>
         </View>
 
+        {/* رؤوس الأيام */}
+        <View style={styles.weekHeaderRow}>
+          {CALENDAR_DAY_KEYS.map((key) => (
+            <Text key={key} style={styles.weekHeaderCell}>
+              {CALENDAR_HEADER_LABELS[key]}
+            </Text>
+          ))}
+        </View>
+
+        {/* خلايا الأيام */}
+        <View style={styles.calendarGrid}>
+          {calendarCells.map((cell) => {
+            if (cell.type === "blank") {
+              return <View key={cell.key} style={styles.dayCell} />;
+            }
+            const isSelected = cell.iso === selectedDateIso;
+            return (
+              <View key={cell.key} style={styles.dayCell}>
+                <TouchableOpacity
+                  disabled={!cell.selectable}
+                  onPress={() => handleSelectDate(cell.iso)}
+                  style={[
+                    styles.dayButton,
+                    isSelected && styles.dayButtonSelected,
+                    cell.isToday && !isSelected && styles.dayButtonToday,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected, disabled: !cell.selectable }}
+                  accessibilityLabel={`${cell.day}`}
+                >
+                  <Text
+                    style={[
+                      styles.dayText,
+                      !cell.selectable && styles.dayTextDisabled,
+                      isSelected && styles.dayTextSelected,
+                      cell.isToday && !isSelected && styles.dayTextToday,
+                    ]}
+                  >
+                    {cell.day}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* بطاقة التاريخ المختار */}
+        {selectedDateFullLabel ? (
+          <View style={styles.selectedDateCard}>
+            <Text style={styles.selectedDateText}>{selectedDateFullLabel}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderTimeGroup = (label, slots) => {
+    if (!slots.length) return null;
+    return (
+      <View style={styles.timeGroup}>
+        <Text style={styles.timeGroupLabel}>{label}</Text>
+        <View style={styles.timeGrid}>
+          {slots.map((slot) => {
+            const isActive = slot.index === selectedTimeIndex;
+            return (
+              <TouchableOpacity
+                key={`${slot.value}-${slot.index}`}
+                style={[styles.timeChip, isActive && styles.timeChipActive]}
+                onPress={() => setSelectedTimeIndex(slot.index)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={slot.label}
+              >
+                <Text
+                  style={[styles.timeChipText, isActive && styles.timeChipTextActive]}
+                >
+                  {slot.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const renderTimeStep = () => (
+    <View>
+      {selectedDateFullLabel ? (
+        <Text style={styles.timeStepSubtitle}>{selectedDateFullLabel}</Text>
+      ) : null}
+      {blockedLoading ? (
+        <Text style={styles.blockedNotice}>
+          جاري مزامنة المواعيد المحجوزة مع العيادة...
+        </Text>
+      ) : null}
+      {selectedDateIso && (blockedSlots[selectedDateIso]?.length || 0) > 0 ? (
+        <Text style={styles.blockedNotice}>
+          تم حجز {blockedSlots[selectedDateIso].length} وقتًا لهذا اليوم، ولن تظهر مجددًا.
+        </Text>
+      ) : null}
+      {hasSlots ? (
+        <>
+          {renderTimeGroup("صباحاً", morningSlots)}
+          {renderTimeGroup("مساءً", eveningSlots)}
+        </>
+      ) : (
+        <View style={styles.card}>
+          <Text style={styles.emptyStateText}>
+            لا توجد مواعيد متاحة في هذا اليوم.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      {/* الرأس */}
+      <View style={styles.header}>
         <TouchableOpacity
-          style={[
-            styles.primaryButton,
-            (!hasDates || !hasSlots ||
-              selectedDateIndex === null ||
-              selectedTimeIndex === null) &&
-              styles.primaryButtonDisabled,
-          ]}
-          onPress={handleConfirm}
-          disabled={
-            loading || !hasDates || !hasSlots ||
-            selectedDateIndex === null ||
-            selectedTimeIndex === null
-          }
+          onPress={handleBack}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="رجوع"
+        >
+          <Feather name="arrow-right" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.title}>{activeStep.title}</Text>
+        <View style={styles.backButton} />
+      </View>
+
+      {renderStepIndicator()}
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {step === 1 && doctorName ? (
+          <View style={styles.doctorStrip}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.doctorAvatar} />
+            ) : (
+              <View style={styles.doctorAvatarPlaceholder}>
+                <Feather name="user" size={20} color={colors.primary} />
+              </View>
+            )}
+            <View style={styles.doctorStripInfo}>
+              <Text style={styles.doctorName} numberOfLines={1}>
+                {doctorName}
+              </Text>
+              <Text style={styles.doctorRole} numberOfLines={1}>
+                {doctorRole || specialty || "طبيب"}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {step === 1 && renderServiceStep()}
+        {step === 2 && renderDateStep()}
+        {step === 3 && renderTimeStep()}
+      </ScrollView>
+
+      {/* القدم */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.primaryButton, isFooterDisabled && styles.primaryButtonDisabled]}
+          onPress={step === 3 ? handleConfirm : handleNext}
+          disabled={isFooterDisabled}
+          accessibilityRole="button"
         >
           <View style={styles.primaryButtonContent}>
-            {loading && (
+            {loading ? (
               <ActivityIndicator size="small" color="#fff" style={styles.buttonSpinner} />
-            )}
+            ) : null}
             <Text style={styles.primaryButtonText}>
-              {loading ? "جارٍ الحجز..." : "تأكيد الحجز"}
+              {step === 3
+                ? loading
+                  ? "جارٍ الحجز..."
+                  : "احجز موعد"
+                : "التالي"}
             </Text>
           </View>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -776,15 +1080,12 @@ const createStyles = (colors) =>
       backgroundColor: colors.background,
       writingDirection: "rtl",
     },
-    content: {
-      padding: 20,
-      paddingBottom: 32,
-      writingDirection: "rtl",
-    },
     header: {
       flexDirection: "row-reverse",
       alignItems: "center",
-      marginBottom: 16,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 4,
     },
     backButton: {
       width: 44,
@@ -800,269 +1101,363 @@ const createStyles = (colors) =>
       color: colors.text,
       writingDirection: "rtl",
     },
-    doctorCard: {
-      backgroundColor: colors.surfaceAlt,
-      padding: 16,
-      borderRadius: 16,
-      marginBottom: 16,
+    // Stepper
+    stepperRow: {
       flexDirection: "row-reverse",
+      alignItems: "flex-start",
+      justifyContent: "center",
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      paddingBottom: 16,
+    },
+    stepItem: {
+      alignItems: "center",
+      width: 64,
+    },
+    stepCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.surfaceAlt,
+      justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
     },
-    avatar: {
-      width: 56,
-      height: 56,
+    stepCircleActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    stepNumber: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.textMuted,
+    },
+    stepNumberActive: {
+      color: "#fff",
+    },
+    stepLabel: {
+      marginTop: 6,
+      fontSize: 12,
+      color: colors.textMuted,
+      writingDirection: "rtl",
+    },
+    stepLabelActive: {
+      color: colors.primary,
+      fontWeight: "700",
+    },
+    stepConnector: {
+      height: 2,
+      width: 28,
+      backgroundColor: colors.border,
+      marginTop: 15,
+      marginHorizontal: -6,
+    },
+    stepConnectorActive: {
+      backgroundColor: colors.primary,
+    },
+    content: {
+      paddingHorizontal: 20,
+      paddingBottom: 24,
+      writingDirection: "rtl",
+    },
+    // Doctor strip
+    doctorStrip: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      backgroundColor: colors.surface,
       borderRadius: 16,
-      backgroundColor: colors.primary + "20",
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 16,
     },
     doctorAvatar: {
-      width: 56,
-      height: 56,
-      borderRadius: 16,
-      marginRight: 12,
+      width: 44,
+      height: 44,
+      borderRadius: 12,
       backgroundColor: colors.primary + "20",
     },
-    doctorInfo: {
+    doctorAvatarPlaceholder: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: colors.primary + "20",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    doctorStripInfo: {
+      flex: 1,
       marginHorizontal: 12,
     },
     doctorName: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: colors.text,
-      textAlign: "right",
-    },
-    doctorRole: {
-      fontSize: 14,
-      color: colors.textMuted,
-      textAlign: "right",
-    },
-    specialtyText: {
-      fontSize: 13,
-      color: colors.text,
-      textAlign: "right",
-    },
-    section: {
-      backgroundColor: colors.surface,
-      borderRadius: 20,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 16,
-    },
-    helperText: {
-      marginTop: 10,
-      fontSize: 13,
-      color: colors.textMuted,
-      textAlign: "right",
-      writingDirection: "rtl",
-    },
-    optionRow: {
-      flexDirection: "row-reverse",
-      alignItems: "center",
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-      borderRadius: 14,
-      backgroundColor: colors.surfaceAlt,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 10,
-    },
-    optionRowActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primary + "12",
-    },
-    optionTitle: {
-      fontSize: 14,
+      fontSize: 15,
       fontWeight: "700",
       color: colors.text,
       textAlign: "right",
       writingDirection: "rtl",
     },
-    optionTitleActive: {
-      color: colors.primary,
-    },
-    optionMeta: {
-      marginTop: 4,
-      fontSize: 12,
-      color: colors.textMuted,
-      textAlign: "right",
-      writingDirection: "rtl",
-    },
-    optionMetaStrong: {
-      marginTop: 4,
-      fontSize: 12,
-      color: colors.text,
-      textAlign: "right",
-      writingDirection: "rtl",
-      fontWeight: "800",
-    },
-    optionDiscountRow: {
-      marginTop: 4,
-      flexDirection: "row-reverse",
-      alignItems: "center",
-      gap: 8,
-      flexWrap: "wrap",
-    },
-    optionPriceOld: {
-      fontSize: 11,
-      color: colors.textMuted,
-      textDecorationLine: "line-through",
-    },
-    discountBadgeInline: {
-      borderWidth: 1,
-      borderColor: colors.danger,
-      borderRadius: 999,
-      backgroundColor: colors.surface,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-    },
-    discountBadgeInlineText: {
-      color: colors.danger,
-      fontSize: 10,
-      fontWeight: "800",
-      writingDirection: "rtl",
-    },
-    priceRow: {
-      marginTop: 10,
-      paddingTop: 10,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      flexDirection: "row-reverse",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    priceLabel: {
+    doctorRole: {
       fontSize: 13,
       color: colors.textMuted,
-      fontWeight: "600",
+      textAlign: "right",
+      writingDirection: "rtl",
     },
-    priceValue: {
+    // Generic card
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    helperText: {
+      paddingVertical: 16,
       fontSize: 14,
-      color: colors.text,
-      fontWeight: "800",
-    },
-    priceValuesWrap: {
-      alignItems: "flex-end",
-      gap: 2,
-    },
-    priceValueOld: {
-      fontSize: 12,
       color: colors.textMuted,
-      textDecorationLine: "line-through",
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: colors.text,
       textAlign: "right",
       writingDirection: "rtl",
     },
     emptyStateText: {
-      marginTop: 12,
-      fontSize: 13,
+      paddingVertical: 20,
+      fontSize: 14,
       color: colors.textMuted,
       textAlign: "center",
       writingDirection: "rtl",
     },
     blockedNotice: {
-      marginTop: 6,
-      fontSize: 11,
+      marginBottom: 10,
+      fontSize: 12,
       color: colors.textMuted,
       textAlign: "right",
       writingDirection: "rtl",
     },
-    dateRow: {
+    // Services
+    serviceHeaderRow: {
       flexDirection: "row-reverse",
-      flexWrap: "wrap",
-      marginTop: 12,
+      justifyContent: "space-between",
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
-    dateChip: {
-      minWidth: 72,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      backgroundColor: colors.surfaceAlt,
+    serviceHeaderText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.textMuted,
+      writingDirection: "rtl",
+    },
+    serviceRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
       alignItems: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginLeft: 10,
-      marginBottom: 10,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      minHeight: 56,
     },
-    dateChipActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
+    serviceRowLast: {
+      borderBottomWidth: 0,
     },
-    dateChipDay: {
+    serviceNameWrap: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      flex: 1,
+    },
+    serviceRadio: {
+      marginRight: 10,
+    },
+    serviceName: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "right",
+      writingDirection: "rtl",
+      flexShrink: 1,
+    },
+    serviceNameActive: {
+      color: colors.primary,
+    },
+    servicePriceWrap: {
+      alignItems: "flex-start",
+      marginLeft: 8,
+    },
+    servicePrice: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    servicePriceActive: {
+      color: colors.primary,
+    },
+    servicePriceOld: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textDecorationLine: "line-through",
+      writingDirection: "rtl",
+    },
+    serviceDuration: {
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 2,
+      writingDirection: "rtl",
+    },
+    // Calendar
+    calendarHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 12,
+      paddingHorizontal: 4,
+    },
+    calendarNavBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    calendarMonthLabel: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.text,
+      writingDirection: "rtl",
+    },
+    weekHeaderRow: {
+      flexDirection: "row-reverse",
+      paddingBottom: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    weekHeaderCell: {
+      width: `${100 / 7}%`,
+      textAlign: "center",
       fontSize: 11,
       color: colors.textMuted,
       writingDirection: "rtl",
     },
-    dateChipDayActive: {
-      color: "#fff",
+    calendarGrid: {
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      paddingVertical: 8,
     },
-    dateChipDate: {
-      fontSize: 16,
+    dayCell: {
+      width: `${100 / 7}%`,
+      height: 46,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    dayButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    dayButtonSelected: {
+      backgroundColor: colors.primary,
+    },
+    dayButtonToday: {
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    dayText: {
+      fontSize: 15,
+      color: colors.text,
+      fontWeight: "600",
+      writingDirection: "rtl",
+    },
+    dayTextDisabled: {
+      color: colors.placeholder,
+      fontWeight: "400",
+    },
+    dayTextSelected: {
+      color: "#fff",
+      fontWeight: "700",
+    },
+    dayTextToday: {
+      color: colors.primary,
+      fontWeight: "700",
+    },
+    selectedDateCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 14,
+      paddingVertical: 16,
+      paddingHorizontal: 12,
+      marginTop: 8,
+      marginBottom: 8,
+      alignItems: "center",
+    },
+    selectedDateText: {
+      fontSize: 15,
       fontWeight: "600",
       color: colors.text,
       writingDirection: "rtl",
     },
-    dateChipDateActive: {
-      color: "#fff",
+    // Time
+    timeStepSubtitle: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+      marginBottom: 16,
+      writingDirection: "rtl",
     },
-    timeRow: {
-      flexDirection: "row",
-      paddingVertical: 12,
+    timeGroup: {
+      marginBottom: 20,
+    },
+    timeGroupLabel: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "right",
+      marginBottom: 12,
+      writingDirection: "rtl",
+    },
+    timeGrid: {
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      justifyContent: "flex-start",
     },
     timeChip: {
-      minWidth: 90,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 12,
+      width: `${(100 - 2 * 4) / 3}%`,
+      marginLeft: "2%",
+      marginBottom: 12,
+      paddingVertical: 14,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
       backgroundColor: colors.surface,
-      marginRight: 12,
     },
     timeChipActive: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
     timeChipText: {
-      fontSize: 15,
-      color: colors.textMuted,
+      fontSize: 14,
+      color: colors.text,
+      fontWeight: "600",
       writingDirection: "rtl",
     },
     timeChipTextActive: {
       color: "#fff",
     },
+    // Footer
+    footer: {
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      paddingBottom: 24,
+      backgroundColor: colors.background,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
     primaryButton: {
       backgroundColor: colors.primary,
       borderRadius: 16,
-      paddingVertical: 14,
-      alignItems: "center",
-    },
-    secondaryButton: {
-      flexDirection: "row-reverse",
+      paddingVertical: 16,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.primary,
-      borderRadius: 14,
-      paddingVertical: 12,
-      marginBottom: 12,
-      backgroundColor: colors.surface,
-    },
-    secondaryButtonIcon: {
-      marginLeft: 8,
-    },
-    secondaryButtonText: {
-      color: colors.primary,
-      fontSize: 15,
-      fontWeight: "600",
-      textAlign: "center",
-      writingDirection: "rtl",
     },
     primaryButtonDisabled: {
       opacity: 0.5,
@@ -1073,12 +1468,12 @@ const createStyles = (colors) =>
       justifyContent: "center",
     },
     buttonSpinner: {
-      marginRight: 6,
+      marginRight: 8,
     },
     primaryButtonText: {
       color: "#fff",
-      fontSize: 16,
-      fontWeight: "600",
+      fontSize: 17,
+      fontWeight: "700",
       textAlign: "center",
       writingDirection: "rtl",
     },

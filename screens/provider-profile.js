@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ScrollView,
   View,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchDoctorDashboard, logout, getToken } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
@@ -21,7 +21,6 @@ export default function ProviderProfileScreen() {
   const [stats, setStats] = useState({ pending: 0, confirmed: 0, total: 0 });
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
 
@@ -52,7 +51,7 @@ export default function ProviderProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {

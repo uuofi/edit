@@ -14,19 +14,47 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
-import { STATUS_LABELS } from "../lib/constants/statusLabels";
-import { fetchAppointments, ApiError, logout } from "../lib/api";
+import { fetchAppointments, ApiError, logout, API_BASE_URL } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
+
+const resolveMediaUrl = (value) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  const prefix = raw.startsWith("/") ? "" : "/";
+  return `${API_BASE_URL}${prefix}${raw}`;
+};
 
 const CACHE_KEY = "cache_my_appointments_v1";
 
-const to12h = (timeStr) => {
+const TABS = [
+  { key: "upcoming", label: "القادمة", statuses: ["pending", "confirmed"] },
+  { key: "previous", label: "السابقة", statuses: ["completed"] },
+  { key: "cancelled", label: "الملغاة", statuses: ["cancelled"] },
+];
+
+const EMPTY_MESSAGES = {
+  upcoming: {
+    title: "لا توجد مواعيد قادمة.",
+    subtitle: "ابدأ بالحجز عبر قائمة التخصصات.",
+  },
+  previous: {
+    title: "لا توجد مواعيد سابقة.",
+    subtitle: "ستظهر هنا المواعيد المكتملة.",
+  },
+  cancelled: {
+    title: "لا توجد مواعيد ملغاة.",
+    subtitle: "المواعيد التي تلغيها ستظهر هنا.",
+  },
+};
+
+const to12hArabic = (timeStr) => {
   if (!timeStr || typeof timeStr !== "string") return timeStr || "";
   const match = timeStr.match(/(\d{1,2}):(\d{2})/);
   if (!match) return timeStr;
   let hours = Number(match[1]);
   const minutes = match[2];
-  const suffix = hours >= 12 ? "PM" : "AM";
+  const suffix = hours >= 12 ? "م" : "ص";
   hours = ((hours + 11) % 12) + 1;
   const hh = hours.toString().padStart(2, "0");
   return `${hh}:${minutes} ${suffix}`;
@@ -40,6 +68,7 @@ export default function MyAppointmentsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("upcoming");
   const fetchingRef = useRef(false);
 
   const loadCached = useCallback(async () => {
@@ -101,14 +130,121 @@ export default function MyAppointmentsScreen() {
     }, [loadAppointments, loadCached])
   );
 
+  const visibleAppointments = useMemo(() => {
+    const tab = TABS.find((t) => t.key === activeTab);
+    if (!tab) return appointments;
+    return appointments.filter((appt) =>
+      tab.statuses.includes(appt.status || "pending")
+    );
+  }, [appointments, activeTab]);
+
+  const handleAddAppointment = useCallback(() => {
+    navigation.navigate("HomeTab");
+  }, [navigation]);
+
+  const renderCard = useCallback(
+    ({ item }) => {
+      const statusKey = item.status || "pending";
+      return (
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.85}
+          onPress={() =>
+            navigation.navigate("AppointmentDetails", {
+              name: item.doctorName,
+              role: item.doctorRole,
+              specialty: item.specialty,
+              doctorProfile: item.doctorProfile,
+              appointmentDate: item.appointmentDate,
+              appointmentTime: item.appointmentTime,
+              status: statusKey,
+              appointmentId: item._id,
+              bookingNumber: item.bookingNumber,
+              patientRatingScore: item.patientRatingScore,
+              patientRatingComment: item.patientRatingComment,
+              patientRatedAt: item.patientRatedAt,
+              doctorNote: item.doctorNote,
+              doctorPrescriptions: item.doctorPrescriptions,
+              avatarUrl: item.doctorProfile?.avatarUrl,
+              location: item.doctorProfile?.location,
+              locationLat: item.doctorProfile?.locationLat,
+              locationLng: item.doctorProfile?.locationLng,
+              ratingAverage: item.doctorProfile?.ratingAverage,
+              ratingCount: item.doctorProfile?.ratingCount,
+              consultationFee:
+                item.service?.price ?? item.doctorProfile?.consultationFee,
+              service: item.service,
+              doctorBio: item.doctorProfile?.bio,
+              secretaryPhone: item.doctorProfile?.secretaryPhone,
+            })
+          }
+        >
+          {item.doctorProfile?.avatarUrl ? (
+            <Image
+              source={{ uri: resolveMediaUrl(item.doctorProfile.avatarUrl) }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Feather name="user" size={28} color={colors.primary} />
+            </View>
+          )}
+
+          <View style={styles.infoColumn}>
+            <Text style={styles.doctorName} numberOfLines={1}>
+              {item.doctorName}
+            </Text>
+
+            <View style={styles.metaRow}>
+              <Feather name="calendar" size={14} color={colors.primary} />
+              <Text style={styles.metaText} numberOfLines={1}>
+                {item.appointmentDate}
+                {item.appointmentTime
+                  ? `  •  ${to12hArabic(item.appointmentTime)}`
+                  : ""}
+              </Text>
+            </View>
+
+            {item.service?.name || item.specialty ? (
+              <Text style={styles.specialty} numberOfLines={1}>
+                {item.service?.name || item.specialty}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [colors, navigation, styles]
+  );
+
+  const empty = EMPTY_MESSAGES[activeTab] || EMPTY_MESSAGES.upcoming;
+
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>مواعيدي</Text>
       </View>
 
+      <View style={styles.tabsRow}>
+        {TABS.map((tab) => {
+          const isActive = tab.key === activeTab;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, isActive && styles.tabActive]}
+              activeOpacity={0.8}
+              onPress={() => setActiveTab(tab.key)}
+            >
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       <FlatList
-        data={appointments}
+        data={visibleAppointments}
         keyExtractor={(item) => String(item._id)}
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -119,6 +255,7 @@ export default function MyAppointmentsScreen() {
               loadAppointments({ suppressLoader: true });
             }}
             colors={[colors.primary]}
+            tintColor={colors.primary}
           />
         }
         ListHeaderComponent={
@@ -133,104 +270,34 @@ export default function MyAppointmentsScreen() {
               <Text style={styles.errorText}>{errorMessage}</Text>
             ) : null}
 
-            {!loading && appointments.length === 0 && !errorMessage ? (
+            {!loading && visibleAppointments.length === 0 && !errorMessage ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>لا توجد مواعيد مسجلة حالياً.</Text>
-                <Text style={styles.emptySubText}>ابدأ بالحجز عبر قائمة التخصصات.</Text>
+                <View style={styles.emptyIconWrapper}>
+                  <Feather name="calendar" size={28} color={colors.primary} />
+                </View>
+                <Text style={styles.emptyText}>{empty.title}</Text>
+                <Text style={styles.emptySubText}>{empty.subtitle}</Text>
               </View>
             ) : null}
           </>
         }
-        renderItem={({ item }) => {
-          const statusKey = item.status || "pending";
-          const badgeStyle = [
-            styles.statusBadge,
-            statusKey === "confirmed" && styles.statusConfirmed,
-            statusKey === "pending" && styles.statusPending,
-            statusKey === "completed" && styles.statusCompleted,
-            statusKey === "cancelled" && styles.statusCancelled,
-          ];
-          const textStyle = [
-            styles.statusText,
-            statusKey === "confirmed" && styles.statusTextConfirmed,
-            statusKey === "pending" && styles.statusTextPending,
-            statusKey === "completed" && styles.statusTextCompleted,
-            statusKey === "cancelled" && styles.statusTextCancelled,
-          ];
-          return (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() =>
-                navigation.navigate("AppointmentDetails", {
-                  name: item.doctorName,
-                  role: item.doctorRole,
-                  specialty: item.specialty,
-                  doctorProfile: item.doctorProfile,
-                  appointmentDate: item.appointmentDate,
-                  appointmentTime: item.appointmentTime,
-                  status: statusKey,
-                  appointmentId: item._id,
-                  bookingNumber: item.bookingNumber,
-                  patientRatingScore: item.patientRatingScore,
-                  patientRatingComment: item.patientRatingComment,
-                  patientRatedAt: item.patientRatedAt,
-                  doctorNote: item.doctorNote,
-                  doctorPrescriptions: item.doctorPrescriptions,
-                  avatarUrl: item.doctorProfile?.avatarUrl,
-                  location: item.doctorProfile?.location,
-                  locationLat: item.doctorProfile?.locationLat,
-                  locationLng: item.doctorProfile?.locationLng,
-                  ratingAverage: item.doctorProfile?.ratingAverage,
-                  ratingCount: item.doctorProfile?.ratingCount,
-                  consultationFee:
-                    item.service?.price ?? item.doctorProfile?.consultationFee,
-                  service: item.service,
-                  doctorBio: item.doctorProfile?.bio,
-                  secretaryPhone: item.doctorProfile?.secretaryPhone,
-                })
-              }
-            >
-              <View style={styles.cardTopRow}>
-                {item.doctorProfile?.avatarUrl ? (
-                  <Image
-                    source={{ uri: item.doctorProfile.avatarUrl }}
-                    style={styles.avatarImage}
-                  />
-                ) : (
-                  <View style={styles.avatar} />
-                )}
-                <View style={styles.infoColumn}>
-                  <Text style={styles.doctorName}>{item.doctorName}</Text>
-                  <Text style={styles.specialty}>{item.specialty}</Text>
-                  {item.service?.name ? (
-                    <Text style={styles.serviceText}>{item.service.name}</Text>
-                  ) : null}
-                  <View style={[styles.statusRow, badgeStyle]}>
-                    <Text style={textStyle}>{STATUS_LABELS[statusKey] || statusKey}</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.cardBottomRow}>
-                <View style={styles.infoRow}>
-                  <Feather name="calendar" size={14} color={colors.textMuted} />
-                  <Text style={styles.infoText}>{item.appointmentDate}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Feather name="clock" size={14} color={colors.textMuted} />
-                  <Text style={styles.infoText}>{to12h(item.appointmentTime)}</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-        ListFooterComponent={<View style={{ height: 24 }} />}
+        renderItem={renderCard}
+        ListFooterComponent={<View style={{ height: 96 }} />}
         removeClippedSubviews
         initialNumToRender={8}
         windowSize={7}
         maxToRenderPerBatch={8}
         updateCellsBatchingPeriod={50}
       />
+
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.85}
+        onPress={handleAddAppointment}
+        accessibilityLabel="حجز موعد جديد"
+      >
+        <Feather name="plus" size={26} color="#FFFFFF" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -240,21 +307,42 @@ const createStyles = (colors) =>
     screen: { flex: 1, backgroundColor: colors.background },
     header: {
       paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      paddingTop: 8,
+      paddingBottom: 12,
     },
     headerTitle: {
       textAlign: "center",
-      fontSize: 18,
-      fontWeight: "600",
+      fontSize: 24,
+      fontWeight: "700",
       color: colors.text,
+    },
+    tabsRow: {
+      flexDirection: "row-reverse",
+      paddingHorizontal: 20,
+      gap: 8,
+      marginBottom: 8,
+    },
+    tab: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    tabActive: {
+      backgroundColor: colors.primary,
+    },
+    tabText: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.textMuted,
+    },
+    tabTextActive: {
+      color: "#FFFFFF",
     },
     listContent: {
       paddingHorizontal: 20,
-      paddingTop: 12,
-      paddingBottom: 12,
+      paddingTop: 8,
     },
     loaderWrapper: {
       paddingVertical: 32,
@@ -266,11 +354,21 @@ const createStyles = (colors) =>
       writingDirection: "rtl",
     },
     emptyState: {
-      paddingVertical: 24,
+      paddingVertical: 48,
       alignItems: "center",
+    },
+    emptyIconWrapper: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      backgroundColor: colors.primary + "15",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
     },
     emptyText: {
       fontSize: 16,
+      fontWeight: "600",
       color: colors.text,
       marginBottom: 4,
     },
@@ -280,101 +378,76 @@ const createStyles = (colors) =>
     },
     card: {
       backgroundColor: colors.surface,
-      borderRadius: 16,
-      padding: 14,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    cardTopRow: {
+      borderRadius: 20,
+      padding: 16,
+      marginBottom: 14,
       flexDirection: "row-reverse",
       alignItems: "center",
-      marginBottom: 8,
+      shadowColor: "#0B1F2A",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.06,
+      shadowRadius: 12,
+      elevation: 2,
+    },
+    avatarImage: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      marginLeft: 16,
+      backgroundColor: colors.surfaceAlt,
+    },
+    avatarFallback: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      marginLeft: 16,
+      backgroundColor: colors.primary + "15",
+      alignItems: "center",
+      justifyContent: "center",
     },
     infoColumn: {
       flex: 1,
       alignItems: "flex-start",
     },
-    statusRow: {
-      marginTop: 6,
-      alignSelf: "flex-start",
-    },
-    avatar: {
-      width: 56,
-      height: 56,
-      borderRadius: 999,
-      backgroundColor: colors.primary + "20",
-      marginLeft: 10,
-    },
-    avatarImage: {
-      width: 56,
-      height: 56,
-      borderRadius: 999,
-      marginLeft: 10,
-    },
     doctorName: {
-      fontSize: 15,
-      fontWeight: "600",
+      fontSize: 18,
+      fontWeight: "700",
       color: colors.text,
+      textAlign: "right",
+      alignSelf: "stretch",
+    },
+    metaRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 8,
+    },
+    metaText: {
+      fontSize: 13,
+      color: colors.textMuted,
       textAlign: "right",
     },
     specialty: {
       fontSize: 13,
       color: colors.textMuted,
       textAlign: "right",
-      marginTop: 2,
+      marginTop: 8,
+      alignSelf: "stretch",
     },
-    serviceText: {
-      fontSize: 12,
-      color: colors.textMuted,
-      textAlign: "right",
-      marginTop: 2,
-    },
-    statusBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+    fab: {
+      position: "absolute",
+      bottom: 24,
+      right: 20,
+      width: 60,
+      height: 60,
       borderRadius: 999,
-    },
-    statusConfirmed: {
-      backgroundColor: colors.success + "20",
-    },
-    statusPending: {
-      backgroundColor: colors.warning + "20",
-    },
-    statusCompleted: {
-      backgroundColor: colors.surfaceAlt,
-    },
-    statusCancelled: {
-      backgroundColor: colors.danger + "20",
-    },
-    statusText: {
-      fontSize: 11,
-    },
-    statusTextConfirmed: {
-      color: colors.success,
-    },
-    statusTextPending: {
-      color: colors.warning,
-    },
-    statusTextCompleted: {
-      color: colors.textMuted,
-    },
-    statusTextCancelled: {
-      color: colors.danger,
-    },
-    cardBottomRow: {
-      flexDirection: "row-reverse",
-      marginTop: 4,
-      gap: 16,
-    },
-    infoRow: {
-      flexDirection: "row-reverse",
+      backgroundColor: colors.primary,
       alignItems: "center",
-      gap: 4,
-    },
-    infoText: {
-      fontSize: 12,
-      color: colors.textMuted,
-      textAlign: "right",
+      justifyContent: "center",
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      elevation: 6,
     },
   });

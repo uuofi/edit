@@ -16,6 +16,10 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from "@react-navigation/drawer";
+import InstagramTabBar, {
+  TAB_PILL_HEIGHT,
+  TAB_BOTTOM_GAP,
+} from "./components/InstagramTabBar";
 import BookingSummaryScreen from "./screens/booking-summary";
 import DoctorDetailsScreen from "./screens/doctor-detalis";
 import DoctorAppointmentsScreen from "./screens/doctor-appointments";
@@ -24,6 +28,7 @@ import ProviderProfileEditScreen from "./screens/provider-profile-edit";
 import ProviderServicesScreen from "./screens/provider-services";
 import ProviderAppointmentsScreen from "./screens/provider-appointments";
 import ProviderReportsScreen from "./screens/provider-reports";
+import ProviderConversationsScreen from "./screens/provider-conversations";
 import PatientsScreen from "./screens/patients";
 import ScheduleManagementScreen from "./screens/schedule-management";
 import ProviderSettingsScreen from "./screens/provider-settings";
@@ -40,20 +45,25 @@ import LabReportsScreen     from "./screens/lab-reports";
 import LabProfileScreen     from "./screens/lab-profile";
 import LabSignupScreen      from "./screens/lab-signup";
 import {
+  fetchMe,
+  saveUserRole,
   normalizeUserRole,
   getUserRole,
   getToken,
-  getExpoPushToken,
   registerExpoPushToken,
   acceptDoctorAppointment,
+  getOnboardingSeen,
 } from "./lib/api";
 import { registerForPushNotificationsAsync } from "./lib/pushNotifications";
+import OnboardingScreen from "./screens/onboarding";
 import RoleSelectionScreen from "./screens/role-selection";
 import LoginScreen from "./screens/login";
 import SignupScreen from "./screens/signup";
 import VerifyEmailScreen from "./screens/verify-email";
 import SpecialtyScreen from "./screens/specialty/[slug]";
-import HomeTabScreen from "./screens/tabs/home";
+import SearchResultsScreen from "./screens/search-results";
+import HomeTabScreen from "./screens/tabs/home-v2";
+import SearchTabScreen from "./screens/tabs/search";
 import AppointmentsTabScreen from "./screens/tabs/appointments";
 import ProfileTabScreen from "./screens/tabs/profile";
 import PersonalInfoScreen from "./screens/personal-info";
@@ -66,7 +76,9 @@ import DeleteAccountScreen from "./screens/delete-account";
 import ActivityLogScreen from "./screens/activity-log";
 import MyAppointmentsScreen from "./screens/my-appointments";
 import AppointmentDetailsScreen from "./screens/appointment-details";
+import AppointmentChatScreen from "./screens/appointment-chat";
 import BookAppointmentScreen from "./screens/book-appointment";
+import BlockedPatientsScreen from "./screens/blocked-patients";
 import CentersMiniScreen from "./screens/centers-mini";
 import CenterDoctorsScreen from "./screens/center-doctors";
 import { ThemeProvider } from "./lib/ThemeProvider";
@@ -78,6 +90,9 @@ import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from "react-native-
 
 import { useAppTheme } from "./lib/useTheme";
 import { Feather } from "@expo/vector-icons";
+
+// استقبال الإشعارات في المقدمة والخلفية
+import * as Notifications from 'expo-notifications';
 
 
 const Stack = createNativeStackNavigator();
@@ -171,14 +186,17 @@ const LabOnlyTabs            = withRoleGuard(LabTabsNavigator,      ["lab"]);
 // references (avoids unmount/remount on every parent re-render).
 const GuardedMyAppointments = withRoleGuard(MyAppointmentsScreen, ["patient"]);
 const GuardedAppointmentDetails = withRoleGuard(AppointmentDetailsScreen, ["patient"]);
+const GuardedAppointmentChat = withRoleGuard(AppointmentChatScreen, ["patient", "doctor"]);
 const GuardedBookAppointment = withRoleGuard(BookAppointmentScreen, ["patient"]);
 const GuardedBookingSummary = withRoleGuard(BookingSummaryScreen, ["patient"]);
 const GuardedSpecialty = withRoleGuard(SpecialtyScreen, ["patient"]);
+const GuardedSearchResults = withRoleGuard(SearchResultsScreen, ["patient"]);
 const GuardedDoctorDetails = withRoleGuard(DoctorDetailsScreen, ["patient"]);
 const GuardedDoctorAppointments = withRoleGuard(DoctorAppointmentsScreen, ["doctor", "secretary"]);
 const GuardedProviderDashboard = withRoleGuard(ProviderProfileScreen, ["doctor", "secretary"]);
 const GuardedProviderProfileEdit = withRoleGuard(ProviderProfileEditScreen, ["doctor"]);
 const GuardedProviderServices = withRoleGuard(ProviderServicesScreen, ["doctor"]);
+const GuardedProviderConversations = withRoleGuard(ProviderConversationsScreen, ["doctor"]);
 const GuardedProviderAppointments = withRoleGuard(ProviderAppointmentsScreen, ["doctor", "secretary"]);
 const GuardedScheduleManagement = withRoleGuard(ScheduleManagementScreen, ["doctor"]);
 const GuardedPersonalInfo = withRoleGuard(PersonalInfoScreen, ["patient"]);
@@ -189,6 +207,7 @@ const GuardedDeleteAccount = withRoleGuard(DeleteAccountScreen, ["patient", "doc
 const GuardedActivityLog = withRoleGuard(ActivityLogScreen, ["patient", "doctor", "secretary"]);
 const GuardedSupport = withRoleGuard(SupportScreen, ["patient", "doctor", "secretary"]);
 const GuardedProviderInventory = withRoleGuard(ProviderInventoryScreen, ["doctor", "secretary"]);
+const GuardedBlockedPatients = withRoleGuard(BlockedPatientsScreen, ["doctor"]);
 const GuardedCentersMini = withRoleGuard(CentersMiniScreen, ["patient"]);
 const GuardedCenterDoctors = withRoleGuard(CenterDoctorsScreen, ["patient"]);
 
@@ -202,9 +221,6 @@ const GuardedLabProfile     = withRoleGuard(LabProfileScreen,     ["lab"]);
 
 // 🔀 ref عشان نقدر نعمل navigate من برا الكومبوننت (من لسنر الإشعار)
 export const navigationRef = createNavigationContainerRef();
-
-// استقبال الإشعارات في المقدمة والخلفية
-import * as Notifications from 'expo-notifications';
 
 // إنشاء قناة الإشعارات للأندرويد 8+ (مطلوب وإلا الإشعارات ما توصل)
 if (Platform.OS === "android") {
@@ -245,43 +261,30 @@ Notifications.addNotificationReceivedListener((notification) => {
 function MainTabsNavigator() {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const androidBottomSpacing = getAndroidBottomSpacing(insets.bottom);
+  // مساحة سفلية للمحتوى حتى لا يختفي خلف الشريط العائم
+  const sceneBottomPad =
+    TAB_PILL_HEIGHT + TAB_BOTTOM_GAP + Math.max(insets.bottom, TAB_BOTTOM_GAP);
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      tabBar={(props) => <InstagramTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-        sceneContainerStyle: {
+        // v7: الخيار اسمه sceneStyle (وليس sceneContainerStyle)
+        sceneStyle: {
           backgroundColor: colors.background,
-          paddingBottom: androidBottomSpacing,
+          paddingBottom: sceneBottomPad,
         },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          height: 60 + androidBottomSpacing,
-          paddingBottom: androidBottomSpacing,
-        },
-        tabBarLabelStyle: {
-          fontSize: 12,
-        },
-        tabBarIcon: ({ color, size }) => {
-          const iconName =
-            route.name === "HomeTab"
-              ? "home"
-              : route.name === "AppointmentsTab"
-              ? "calendar"
-              : route.name === "MedicalRecordsTab"
-              ? "file-text"
-              : "user";
-          return <Feather name={iconName} color={color} size={size} />;
-        },
-      })}
+      }}
     >
       <Tab.Screen
         name="HomeTab"
         component={HomeTabScreen}
         options={{ title: "الرئيسية" }}
+      />
+      <Tab.Screen
+        name="SearchTab"
+        component={SearchTabScreen}
+        options={{ title: "بحث" }}
       />
       <Tab.Screen
         name="AppointmentsTab"
@@ -291,12 +294,12 @@ function MainTabsNavigator() {
       <Tab.Screen
         name="MedicalRecordsTab"
         component={MedicalRecordsTabScreen}
-        options={{ title: "السجلات" }}
+        options={{ title: "سجلاتي" }}
       />
       <Tab.Screen
         name="ProfileTab"
         component={ProfileTabScreen}
-        options={{ title: "الملف الشخصي" }}
+        options={{ title: "المزيد" }}
       />
     </Tab.Navigator>
   );
@@ -351,6 +354,11 @@ function ProviderTabsNavigator() {
         name="ProviderPatientsTab"
         component={PatientsScreen}
         options={{ title: "المرضى" }}
+      />
+      <ProviderDrawer.Screen
+        name="ProviderConversationsTab"
+        component={GuardedProviderConversations}
+        options={{ title: "المحادثات" }}
       />
       <ProviderDrawer.Screen
         name="ProviderReportsTab"
@@ -492,7 +500,20 @@ function AppInner() {
         if (!active) return;
 
         if (token) {
-          const normalizedRole = normalizeUserRole(role);
+          let normalizedRole = normalizeUserRole(role);
+
+          if (!normalizedRole) {
+            try {
+              const meRes = await fetchMe();
+              normalizedRole = normalizeUserRole(meRes?.user?.role);
+              if (normalizedRole) {
+                await saveUserRole(normalizedRole);
+              }
+            } catch {
+              // keep fallback behavior below
+            }
+          }
+
           const destination =
             (normalizedRole === "doctor" || normalizedRole === "secretary")
               ? "ProviderTabs"
@@ -503,7 +524,8 @@ function AppInner() {
               : "RoleSelection";
           setInitialRoute(destination);
         } else {
-          setInitialRoute("RoleSelection");
+          const onboardingSeen = await getOnboardingSeen();
+          setInitialRoute(onboardingSeen ? "RoleSelection" : "Onboarding");
         }
       } catch (error) {
         console.warn("Boot routing error", error);
@@ -519,7 +541,7 @@ function AppInner() {
       // Push token registration runs AFTER navigation is set (non-blocking).
       if (!active) return;
       try {
-        const [token, role] = await Promise.all([getToken(), getUserRole()]);
+        const token = await getToken();
         if (!token || !active) return;
         console.log("[App] User logged in, starting push registration...");
 
@@ -633,6 +655,11 @@ function AppInner() {
             initialRouteName={initialRoute}
           >
             <Stack.Screen
+              name="Onboarding"
+              component={OnboardingScreen}
+              options={{ gestureEnabled: false }}
+            />
+            <Stack.Screen
               name="RoleSelection"
               component={RoleSelectionScreen}
               options={{ gestureEnabled: false }}
@@ -662,6 +689,10 @@ function AppInner() {
               component={GuardedAppointmentDetails}
             />
             <Stack.Screen
+              name="AppointmentChat"
+              component={GuardedAppointmentChat}
+            />
+            <Stack.Screen
               name="BookAppointment"
               component={GuardedBookAppointment}
             />
@@ -672,6 +703,10 @@ function AppInner() {
             <Stack.Screen
               name="Specialty"
               component={GuardedSpecialty}
+            />
+            <Stack.Screen
+              name="SearchResults"
+              component={GuardedSearchResults}
             />
             <Stack.Screen
               name="DoctorDetails"
@@ -713,6 +748,10 @@ function AppInner() {
             <Stack.Screen
               name="ProfileSettings"
               component={GuardedProfileSettings}
+            />
+            <Stack.Screen
+              name="BlockedPatients"
+              component={GuardedBlockedPatients}
             />
             <Stack.Screen
               name="ChangePassword"

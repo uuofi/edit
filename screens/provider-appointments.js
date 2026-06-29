@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -177,7 +177,6 @@ export default function ProviderAppointmentsScreen() {
   });
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [recentCancelled, setRecentCancelled] = useState(null);
-  const [expandedQrId, setExpandedQrId] = useState(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const emptyManualForm = {
@@ -198,7 +197,6 @@ export default function ProviderAppointmentsScreen() {
   const [rescheduleDateIndex, setRescheduleDateIndex] = useState(null);
   const [rescheduleTimeIndex, setRescheduleTimeIndex] = useState(null);
   const [rescheduleLoading, setRescheduleLoading] = useState(false);
-  const [doctorProfile, setDoctorProfile] = useState(null);
   const [doctorId, setDoctorId] = useState(null);
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
   const [blockedSlots, setBlockedSlots] = useState({});
@@ -394,7 +392,6 @@ export default function ProviderAppointmentsScreen() {
     try {
       const data = await fetchDoctorDashboard();
       if (data?.doctor) {
-        setDoctorProfile(data.doctor);
         setDoctorId(data.doctor._id);
         setSchedule({ ...DEFAULT_SCHEDULE, ...(data.doctor.schedule || {}) });
       }
@@ -411,7 +408,7 @@ export default function ProviderAppointmentsScreen() {
       }
       // Network / timeout errors: user sees the appointments error from refreshAppointments
     }
-  }, [navigation, redirectToLogin]);
+  }, [redirectToLogin]);
 
   const loadBlockedSlots = useCallback(() => {
     let active = true;
@@ -535,7 +532,7 @@ export default function ProviderAppointmentsScreen() {
       fetchingRef.current = false;
       if (!silent) setLoading(false);
     }
-  }, [navigation, redirectToLogin]);
+  }, [redirectToLogin]);
 
   useFocusEffect(
     useCallback(() => {
@@ -865,7 +862,7 @@ export default function ProviderAppointmentsScreen() {
                 }
                 updatedById[id] = updated;
                 success += 1;
-              } catch (err) {
+              } catch {
                 failed += 1;
               } finally {
                 setActionLoading((prev) => {
@@ -927,7 +924,7 @@ export default function ProviderAppointmentsScreen() {
                 const { appointment: updated } = await completeDoctorAppointment(id);
                 updatedById[id] = updated;
                 success += 1;
-              } catch (err) {
+              } catch {
                 failed += 1;
               } finally {
                 setActionLoading((prev) => {
@@ -1034,7 +1031,7 @@ export default function ProviderAppointmentsScreen() {
       return;
     }
     const patientId = appointment.user._id;
-    let current = { blockBooking: false };
+    let current = { blockBooking: false, blockChat: false };
     try {
       const res = await getBlock(patientId);
       if (res?.block) current = res.block;
@@ -1045,6 +1042,10 @@ export default function ProviderAppointmentsScreen() {
     const applyBlock = async (changes) => {
       try {
         const next = {
+          blockChat:
+            changes.blockChat !== undefined
+              ? changes.blockChat
+              : current.blockChat,
           blockBooking:
             changes.blockBooking !== undefined
               ? changes.blockBooking
@@ -1062,6 +1063,10 @@ export default function ProviderAppointmentsScreen() {
       "إعدادات الحظر",
       "اختر نوع الحظر للمراجع",
       [
+        {
+          text: current.blockChat ? "رفع حظر الرسائل" : "حظر الرسائل",
+          onPress: () => applyBlock({ blockChat: !current.blockChat }),
+        },
         {
           text: current.blockBooking ? "رفع حظر الحجز" : "حظر الحجز",
           onPress: () => applyBlock({ blockBooking: !current.blockBooking }),
@@ -1123,7 +1128,7 @@ export default function ProviderAppointmentsScreen() {
     let parsed;
     try {
       parsed = JSON.parse(data);
-    } catch (err) {
+    } catch {
       parsed = null;
     }
 
@@ -1880,6 +1885,20 @@ export default function ProviderAppointmentsScreen() {
                 <Text style={styles.modalActionText}>اتصال</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                style={[styles.modalActionButton, styles.chatModalButton]}
+                onPress={() => {
+                  const appointment = selectedAppointment;
+                  setSelectedAppointment(null);
+                  navigation.navigate("AppointmentChat", {
+                    appointmentId: appointment?._id,
+                    patientId: appointment?.user?._id,
+                    patientName: appointment?.user?.name,
+                  });
+                }}
+              >
+                <Text style={styles.modalActionText}>محادثة</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.modalActionButton, styles.blockModalButton]}
                 onPress={() => openBlockOptions(selectedAppointment)}
               >
@@ -2156,8 +2175,6 @@ const createStyles = (colors, isDark) => {
   const neutralTint = colors.surfaceAlt;
   const mutedCard = colors.surfaceAlt;
   const recentCancelBg = colors.surfaceAlt;
-  const successTint = colors.surfaceAlt;
-  const warningTint = colors.surfaceAlt;
   const dangerTint = colors.surfaceAlt;
   const blockTint = colors.surfaceAlt;
   const modalShadow = colors.overlay;
@@ -3057,7 +3074,8 @@ const createStyles = (colors, isDark) => {
     },
     modalActionsRow: {
       flexDirection: "row",
-      justifyContent: "space-between",
+      flexWrap: "wrap",
+      justifyContent: "center",
       marginTop: 8,
     },
     modalCancelButton: {
@@ -3089,11 +3107,13 @@ const createStyles = (colors, isDark) => {
       fontWeight: "700",
     },
     modalActionButton: {
-      flex: 1,
+      minWidth: "46%",
+      flexGrow: 1,
       paddingVertical: 12,
       borderRadius: 12,
       alignItems: "center",
-      marginHorizontal: 6,
+      marginHorizontal: 4,
+      marginVertical: 4,
     },
     modalActionText: {
       color: colors.surface,
@@ -3105,6 +3125,9 @@ const createStyles = (colors, isDark) => {
     },
     callButton: {
       backgroundColor: colors.primary,
+    },
+    chatModalButton: {
+      backgroundColor: colors.warning,
     },
     blockModalButton: {
       backgroundColor: colors.danger,

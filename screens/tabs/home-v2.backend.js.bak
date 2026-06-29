@@ -42,7 +42,8 @@ import {
   Star,
   Stethoscope,
 } from "lucide-react-native";
-import { FontAwesome5 , Feather } from "@expo/vector-icons";
+import { FontAwesome5, Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 
 import {
@@ -81,8 +82,10 @@ const ImageWithFallback = ({ src, alt, styles }) => {
   );
 };
 
-function TypewriterWelcome({ colors }) {
-  const fullText = "مرحباً بك بـMedicare";
+/* ─────────── Gradient Hero Header (NEW) ─────────── */
+function GradientHero({ colors, isDark }) {
+  const fullText = "مرحباً بك";
+  const subText = "Medicare";
   const [displayed, setDisplayed] = React.useState("");
   const [typing, setTyping] = React.useState(true);
   const i = React.useRef(0);
@@ -103,43 +106,83 @@ function TypewriterWelcome({ colors }) {
           return prev;
         }
       });
-    }, 70);
+    }, 80);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <View style={{
-      alignItems: 'flex-start',
-      marginHorizontal: 16,
-      marginBottom: 8,
-      marginTop: 18,
-    }}>
-      <View style={{
-        borderWidth: 2,
-        borderColor: colors.primary,
-        borderRadius: 16,
-        backgroundColor: '#fff',
-        paddingHorizontal: 18,
-        paddingVertical: 8,
-        shadowColor: '#000',
-        shadowOpacity: 0.07,
-        shadowRadius: 4,
-        elevation: 2,
-        alignSelf: 'flex-start',
-      }}>
-        <Text style={{
-          fontSize: 22,
-          fontWeight: "700",
-          color: colors.primary,
+    <LinearGradient
+      colors={isDark ? ["#0F172A", "#1E3A5F", "#0F172A"] : ["#1e4980", "#2563EB", "#1e4980"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        paddingTop: 20,
+        paddingBottom: 32,
+        paddingHorizontal: 20,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
+      }}
+    >
+      {/* Decorative background logo */}
+      <View pointerEvents="none" style={{ position: "absolute", top: -20, left: -20, opacity: 0.15 }}>
+        <Image
+          source={require("../../assets/images/Medicare-login.png")}
+          style={{ width: 200, height: 200, resizeMode: "contain" }}
+        />
+      </View>
+
+      <Animatable.View animation="fadeInDown" duration={800} delay={100}>
+        <View style={{ flexDirection: "row-reverse", alignItems: "center", gap: 12, marginBottom: 6 }}>
+          <View style={{
+            width: 44,
+            height: 44,
+            borderRadius: 14,
+            backgroundColor: "rgba(255,255,255,0.15)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
+            <Stethoscope color="#fff" size={24} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{
+              fontSize: 26,
+              fontWeight: "800",
+              color: "#FFFFFF",
+              textAlign: "right",
+              writingDirection: "rtl",
+            }}>
+              {displayed}
+              {typing ? <Text style={{ opacity: 0.5 }}>|</Text> : null}
+            </Text>
+            <Text style={{
+              fontSize: 16,
+              fontWeight: "600",
+              color: "rgba(255,255,255,0.7)",
+              textAlign: "right",
+              writingDirection: "rtl",
+              marginTop: 2,
+            }}>
+              في {subText}
+            </Text>
+          </View>
+        </View>
+      </Animatable.View>
+
+      <Animatable.Text
+        animation="fadeInUp"
+        duration={800}
+        delay={600}
+        style={{
+          fontSize: 13,
+          color: "rgba(255,255,255,0.6)",
           textAlign: "right",
           writingDirection: "rtl",
-          letterSpacing: 0.5,
-        }}>
-          {displayed}
-          {typing ? <Text style={{color: colors.primary, opacity: 0.5}}>|</Text> : null}
-        </Text>
-      </View>
-    </View>
+          marginTop: 8,
+        }}
+      >
+        احجز موعدك مع أفضل الأطباء بسهولة
+      </Animatable.Text>
+    </LinearGradient>
   );
 }
 
@@ -198,11 +241,11 @@ export default function App() {
 
         const regularDoctors = Array.isArray(regularDoctorsRes?.doctors)
           ? regularDoctorsRes.doctors
-              .filter((doc) => {
-                const id = String(doc?._id || doc?.id || "");
-                return !centerDoctorProfileIds.has(id);
-              })
-              .map((doc) => {
+            .filter((doc) => {
+              const id = String(doc?._id || doc?.id || "");
+              return !centerDoctorProfileIds.has(id);
+            })
+            .map((doc) => {
               const doctorId = String(doc?._id || doc?.id || "");
               return {
                 key: `regular-${doctorId}`,
@@ -246,20 +289,20 @@ export default function App() {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const visibleSearchDoctors = normalizedSearchTerm
     ? searchDoctors
-        .filter((doc) => {
-          const haystack = [
-            doc.displayName,
-            doc.specialtyLabel,
-            doc.phone,
-            doc.licenseNumber,
-            doc.centerName,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-          return haystack.includes(normalizedSearchTerm);
-        })
-        .slice(0, 12)
+      .filter((doc) => {
+        const haystack = [
+          doc.displayName,
+          doc.specialtyLabel,
+          doc.phone,
+          doc.licenseNumber,
+          doc.centerName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(normalizedSearchTerm);
+      })
+      .slice(0, 12)
     : [];
   const fallbackCarousel = useMemo(
     () => [
@@ -450,7 +493,7 @@ export default function App() {
 
   // أيكونات الخدمات الرئيسية
   const quickActions = [
-    
+
     {
       key: "centers",
       label: "المراكز",
@@ -536,7 +579,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carouselImages.length]);
 
-  // الضغط على الأيقونات الرئيسية
+  // الضغط على الأيكونات الرئيسية
   const handleQuickActionPress = (key) => {
     if (key === "specialties") {
       if (mainScrollRef.current) {
@@ -590,9 +633,9 @@ export default function App() {
       doctorId,
       ...(isCenterDoctor
         ? {
-            medicalCenterId: doctor.medicalCenterId,
-            doctorCenterId: doctor.doctorCenterId,
-          }
+          medicalCenterId: doctor.medicalCenterId,
+          doctorCenterId: doctor.doctorCenterId,
+        }
         : {}),
       avatarUrl: doctor.avatarUrl,
       location: doctor.location,
@@ -610,8 +653,8 @@ export default function App() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Welcome Message */}
-        <TypewriterWelcome colors={colors} />
+        {/* ★ NEW: Gradient Hero Header */}
+        <GradientHero colors={colors} isDark={isDark} />
 
         <View style={styles.section}>
           <View style={styles.searchBoxOuter}>
@@ -1003,233 +1046,233 @@ const createStyles = (colors, isDark) =>
       writingDirection: "rtl",
     },
 
-  // ===== emergency call =====
-  emergencyWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingVertical: 10,
-  },
-  emergencyCard: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: colors.danger,
-    backgroundColor: colors.surface,
-    shadowColor: colors.danger,
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  emergencyButtonWrap: {
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emergencyPulse: {
-    position: "absolute",
-    width: 176,
-    height: 176,
-    borderRadius: 999,
-    backgroundColor: colors.danger,
-    opacity: 0.22,
-  },
-  emergencyButton: {
-    width: 176,
-    height: 176,
-    borderRadius: 999,
-    backgroundColor: colors.danger,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  emergencyText: {
-    color: colors.surface,
-    fontWeight: "800",
-    fontSize: 34,
-  },
-  emergencyButtonHint: {
-    color: colors.surface,
-    fontSize: 14,
-    fontWeight: "700",
-    writingDirection: "rtl",
-  },
-  emergencyLabel: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    textAlign: "right",
-    writingDirection: "rtl",
-    marginBottom: 4,
-  },
-  emergencySubLabel: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    writingDirection: "rtl",
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    marginBottom: 16,
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: "600",
-    textAlign: "right",
-  },
-  // ===== quick actions =====
-  quickActionsRow: {
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  quickActionCard: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-  },
-  quickActionIconWrapper: {
-    padding: 10,
-    borderRadius: 999,
-    marginBottom: 6,
-  },
-  quickActionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.text,
-    textAlign: "center",
-  },
-  // ===== specialties grid =====
-  grid: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    justifyContent: "flex-start",
-    rowGap: 14,
-    columnGap: 12,
-  },
-  gridItem: {
-    flexBasis: "30%",
-    minWidth: "29%",
-    maxWidth: "33%",
-    flexGrow: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    paddingTop: 14,
-    paddingBottom: 12,
-    paddingHorizontal: 6,
-    alignItems: "center",
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.border,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-  },
-  gridItemActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
-    shadowOpacity: 0.18,
-    elevation: 6,
-  },
-  iconWrapper: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    marginBottom: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-  },
-  gridItemText: {
-    fontSize: 12,
-    fontWeight: "700",
-    textAlign: "center",
-    color: colors.text,
-    letterSpacing: 0.2,
-  },
-  hospitalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-  },
-  mapPreview: {
-    borderRadius: 18,
-    height: 120,
-    marginBottom: 14,
-    backgroundColor: isDark ? "rgba(56,189,248,0.12)" : "#DBEAFE",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pinWrapper: {
-    backgroundColor: colors.danger,
-    padding: 10,
-    borderRadius: 999,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 6,
-  },
-  hospitalInfo: {
-    gap: 8,
-  },
-  hospitalName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
-    textAlign: "right",
-  },
-  hospitalDistanceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    textAlign: "right",
-    marginTop: 4,
-  },
-  hospitalDistanceText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: "right",
-  },
-  hospitalDetailsText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: "right",
-  },
-  detailsButton: {
-    marginTop: 8,
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  detailsButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+    // ===== emergency call =====
+    emergencyWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+      paddingVertical: 10,
+    },
+    emergencyCard: {
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 20,
+      paddingHorizontal: 16,
+      borderRadius: 24,
+      borderWidth: 2,
+      borderColor: colors.danger,
+      backgroundColor: colors.surface,
+      shadowColor: colors.danger,
+      shadowOpacity: 0.12,
+      shadowOffset: { width: 0, height: 6 },
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    emergencyButtonWrap: {
+      position: "relative",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emergencyPulse: {
+      position: "absolute",
+      width: 176,
+      height: 176,
+      borderRadius: 999,
+      backgroundColor: colors.danger,
+      opacity: 0.22,
+    },
+    emergencyButton: {
+      width: 176,
+      height: 176,
+      borderRadius: 999,
+      backgroundColor: colors.danger,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+    },
+    emergencyText: {
+      color: colors.surface,
+      fontWeight: "800",
+      fontSize: 34,
+    },
+    emergencyButtonHint: {
+      color: colors.surface,
+      fontSize: 14,
+      fontWeight: "700",
+      writingDirection: "rtl",
+    },
+    emergencyLabel: {
+      color: colors.text,
+      fontSize: 24,
+      fontWeight: "800",
+      textAlign: "right",
+      writingDirection: "rtl",
+      marginBottom: 4,
+    },
+    emergencySubLabel: {
+      color: colors.textMuted,
+      fontSize: 13,
+      fontWeight: "600",
+      textAlign: "center",
+      writingDirection: "rtl",
+      marginBottom: 14,
+    },
+    sectionTitle: {
+      marginBottom: 16,
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "600",
+      textAlign: "right",
+    },
+    // ===== quick actions =====
+    quickActionsRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    quickActionCard: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      paddingVertical: 12,
+      paddingHorizontal: 8,
+      alignItems: "center",
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 4,
+    },
+    quickActionIconWrapper: {
+      padding: 10,
+      borderRadius: 999,
+      marginBottom: 6,
+    },
+    quickActionLabel: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+    },
+    // ===== specialties grid =====
+    grid: {
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      justifyContent: "flex-start",
+      rowGap: 14,
+      columnGap: 12,
+    },
+    gridItem: {
+      flexBasis: "30%",
+      minWidth: "29%",
+      maxWidth: "33%",
+      flexGrow: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      paddingTop: 14,
+      paddingBottom: 12,
+      paddingHorizontal: 6,
+      alignItems: "center",
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: colors.border,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+    },
+    gridItemActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+      shadowOpacity: 0.18,
+      elevation: 6,
+    },
+    iconWrapper: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      marginBottom: 8,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+    },
+    gridItemText: {
+      fontSize: 12,
+      fontWeight: "700",
+      textAlign: "center",
+      color: colors.text,
+      letterSpacing: 0.2,
+    },
+    hospitalCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 24,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      elevation: 3,
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 8,
+    },
+    mapPreview: {
+      borderRadius: 18,
+      height: 120,
+      marginBottom: 14,
+      backgroundColor: isDark ? "rgba(56,189,248,0.12)" : "#DBEAFE",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pinWrapper: {
+      backgroundColor: colors.danger,
+      padding: 10,
+      borderRadius: 999,
+      elevation: 4,
+      shadowColor: "#000",
+      shadowOpacity: 0.15,
+      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 6,
+    },
+    hospitalInfo: {
+      gap: 8,
+    },
+    hospitalName: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "right",
+    },
+    hospitalDistanceRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      textAlign: "right",
+      marginTop: 4,
+    },
+    hospitalDistanceText: {
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "right",
+    },
+    hospitalDetailsText: {
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: "right",
+    },
+    detailsButton: {
+      marginTop: 8,
+      backgroundColor: colors.primary,
+      paddingVertical: 12,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    detailsButtonText: {
+      color: "#fff",
+      fontSize: 14,
+      fontWeight: "600",
+    },
   });

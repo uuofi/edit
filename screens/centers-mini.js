@@ -6,15 +6,30 @@ import {
   StyleSheet,
   ActivityIndicator,
   Image,
-  ScrollView,
+  FlatList,
   TextInput,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import * as Location from "expo-location";
 import { useAppTheme } from "../lib/useTheme";
 import { API_BASE_URL, fetchCenters } from "../lib/api";
 import { useCenter } from "../lib/centerContext";
+
+const GOLD = "#F5B544";
+
+// المسافة بين نقطتين (كم) — صيغة هافرسين
+const distanceKm = (lat1, lng1, lat2, lng2) => {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
 export default function CentersMiniScreen() {
   const navigation = useNavigation();
@@ -24,6 +39,7 @@ export default function CentersMiniScreen() {
   const [loading, setLoading] = useState(true);
   const [centers, setCenters] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [userCoords, setUserCoords] = useState(null);
 
   const resolveMediaUrl = (value) => {
     const raw = typeof value === "string" ? value.trim() : "";
@@ -54,6 +70,33 @@ export default function CentersMiniScreen() {
     };
   }, []);
 
+  // موقع المستخدم لحساب المسافة (اختياري — يتدهور بلطف إذا رُفض)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") {
+          const req = await Location.requestForegroundPermissionsAsync();
+          status = req.status;
+        }
+        if (status !== "granted") return;
+
+        const pos =
+          (await Location.getLastKnownPositionAsync()) ||
+          (await Location.getCurrentPositionAsync({}));
+        if (mounted && pos?.coords) {
+          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }
+      } catch {
+        // تجاهل — نعرض المدينة فقط بدون مسافة
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handleCenterPress = async (center) => {
     if (!center?._id) return;
     await setCenter({ id: center._id, name: center.name || "" });
@@ -65,32 +108,93 @@ export default function CentersMiniScreen() {
 
   const filteredCenters = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return centers;
-
-    return centers.filter((center) => {
-      const haystack = [center.name, center.location, center.phone]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(term);
-    });
+    const list = !term
+      ? centers
+      : centers.filter((center) => {
+          const haystack = [center.name, center.location, center.phone]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(term);
+        });
+    // الأعلى تقييماً أولاً
+    return list
+      .slice()
+      .sort((a, b) => (Number(b?.ratingAverage) || 0) - (Number(a?.ratingAverage) || 0));
   }, [centers, searchTerm]);
 
+  const buildMeta = (center) => {
+    const city = String(center?.location || "").trim();
+    let distance = "";
+    const lat = Number(center?.locationLat);
+    const lng = Number(center?.locationLng);
+    if (userCoords && Number.isFinite(lat) && Number.isFinite(lng)) {
+      const km = distanceKm(userCoords.lat, userCoords.lng, lat, lng);
+      if (Number.isFinite(km)) {
+        distance = km < 1 ? "أقل من 1 كم" : `${Math.round(km)} كم`;
+      }
+    }
+    return [city, distance].filter(Boolean).join("  •  ");
+  };
+
+  const renderCard = ({ item: center }) => {
+    const active = String(centerId || "") === String(center._id || "");
+    const imageUri = resolveMediaUrl(center.coverUrl || center.logoUrl);
+    const meta = buildMeta(center);
+    const hasRating = Number(center?.ratingCount) > 0;
+
+    return (
+      <TouchableOpacity
+        style={[styles.card, active && styles.cardActive]}
+        activeOpacity={0.85}
+        onPress={() => handleCenterPress(center)}
+        accessibilityRole="button"
+        accessibilityLabel={center.name || "مركز"}
+      >
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.cardImage} />
+        ) : (
+          <View style={[styles.cardImage, styles.imageFallback]}>
+            <Feather name="home" size={30} color={colors.primary} />
+          </View>
+        )}
+
+        <View style={styles.cardInfo}>
+          <View style={styles.cardTextTop}>
+            <Text style={styles.centerName} numberOfLines={2}>
+              {center.name || "مركز"}
+            </Text>
+            {meta ? (
+              <Text style={styles.centerMeta} numberOfLines={1}>
+                {meta}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.ratingRow}>
+            <Feather name="star" size={16} color={GOLD} />
+            <Text style={styles.ratingValue}>
+              {hasRating ? Number(center.ratingAverage).toFixed(1) : "جديد"}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.headerRow}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
           activeOpacity={0.8}
+          accessibilityLabel="رجوع"
         >
-          <Feather name="chevron-right" size={22} color={colors.text} />
+          <Feather name="arrow-left" size={24} color={colors.text} />
         </TouchableOpacity>
-        <View style={styles.headerTextWrap}>
-          <Text style={styles.title}>المراكز</Text>
-          <Text style={styles.subtitle}>اختر المجمع المناسب لك</Text>
-        </View>
-        <View style={styles.headerSpacer} />
+        <Text style={styles.title}>المراكز الطبية</Text>
+        <View style={styles.backButton} />
       </View>
 
       {loading ? (
@@ -98,54 +202,33 @@ export default function CentersMiniScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
-          <View style={styles.searchBox}>
-            <View style={styles.searchIconWrap}>
-              <Feather name="search" size={16} color={colors.textMuted} />
+        <FlatList
+          data={filteredCenters}
+          keyExtractor={(item) => String(item._id)}
+          renderItem={renderCard}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <View style={styles.searchBox}>
+              <Feather name="search" size={18} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="ابحث عن مركز"
+                placeholderTextColor={colors.textMuted}
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                textAlign="right"
+              />
             </View>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="ابحث عن مركز"
-              placeholderTextColor={colors.placeholder}
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-            />
-          </View>
-
-          {filteredCenters.map((center) => {
-            const active = String(centerId || "") === String(center._id || "");
-            return (
-              <TouchableOpacity
-                key={center._id}
-                style={[styles.card, active && styles.cardActive]}
-                activeOpacity={0.85}
-                onPress={() => handleCenterPress(center)}
-              >
-                <View style={styles.imageWrap}>
-                  {center.logoUrl ? (
-                    <Image
-                      source={{ uri: resolveMediaUrl(center.logoUrl) }}
-                      style={styles.centerImage}
-                    />
-                  ) : (
-                    <View style={styles.imageFallback}>
-                      <Feather name="home" size={24} color={colors.primary} />
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.centerName} numberOfLines={2}>
-                  {center.name || "مركز"}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-
-          {!filteredCenters.length ? (
+          }
+          ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>لا توجد نتائج مطابقة.</Text>
+              <Feather name="home" size={26} color={colors.textMuted} />
+              <Text style={styles.emptyText}>لا توجد مراكز مطابقة.</Text>
             </View>
-          ) : null}
-        </ScrollView>
+          }
+          ListFooterComponent={<View style={{ height: 16 }} />}
+        />
       )}
     </SafeAreaView>
   );
@@ -160,76 +243,41 @@ const createStyles = (colors) =>
     headerRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 18,
+      paddingHorizontal: 16,
       paddingTop: 8,
-      paddingBottom: 12,
+      paddingBottom: 10,
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
+      width: 44,
+      height: 44,
       alignItems: "center",
       justifyContent: "center",
-    },
-    headerTextWrap: {
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 2,
     },
     title: {
-      fontSize: 28,
+      flex: 1,
+      fontSize: 22,
       fontWeight: "800",
       color: colors.text,
       textAlign: "center",
       writingDirection: "rtl",
-    },
-    subtitle: {
-      fontSize: 12,
-      color: colors.textMuted,
-      textAlign: "center",
-      writingDirection: "rtl",
-    },
-    headerSpacer: {
-      width: 40,
-      height: 40,
     },
     loaderWrap: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
     },
-    grid: {
-      paddingHorizontal: 16,
-      paddingBottom: 30,
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      flexGrow: 1,
+    listContent: {
+      paddingHorizontal: 20,
+      paddingTop: 6,
     },
     searchBox: {
-      width: "100%",
-      flexDirection: "row",
+      flexDirection: "row-reverse",
       alignItems: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 18,
-      paddingHorizontal: 12,
-      paddingVertical: 11,
+      gap: 10,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      height: 50,
       marginBottom: 14,
-      backgroundColor: colors.surfaceAlt,
-      gap: 8,
-    },
-    searchIconWrap: {
-      width: 28,
-      height: 28,
-      borderRadius: 10,
-      alignItems: "center",
-      justifyContent: "center",
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -238,72 +286,84 @@ const createStyles = (colors) =>
       flex: 1,
       fontSize: 15,
       color: colors.text,
-      textAlign: "right",
       writingDirection: "rtl",
+      paddingVertical: 0,
     },
     card: {
-      width: "48%",
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
+      flexDirection: "row-reverse",
+      alignItems: "center",
       backgroundColor: colors.surface,
-      paddingHorizontal: 10,
-      paddingVertical: 10,
-      alignItems: "stretch",
-      marginBottom: 14,
-      shadowColor: colors.overlay,
-      shadowOpacity: 0.1,
+      borderRadius: 22,
+      padding: 14,
+      marginBottom: 18,
+      borderWidth: 1,
+      borderColor: "transparent",
+      shadowColor: "#0B1F2A",
       shadowOffset: { width: 0, height: 6 },
-      shadowRadius: 12,
-      elevation: 4,
+      shadowOpacity: 0.07,
+      shadowRadius: 14,
+      elevation: 2,
     },
     cardActive: {
       borderColor: colors.primary,
     },
-    imageWrap: {
-      width: "100%",
-      height: 122,
-      borderRadius: 16,
-      overflow: "hidden",
-      marginBottom: 12,
+    cardImage: {
+      width: 110,
+      height: 110,
+      borderRadius: 18,
+      marginLeft: 16,
       backgroundColor: colors.surfaceAlt,
-    },
-    centerImage: {
-      width: "100%",
-      height: "100%",
       resizeMode: "cover",
     },
     imageFallback: {
-      width: "100%",
-      height: "100%",
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.surfaceAlt,
+    },
+    cardInfo: {
+      flex: 1,
+      minHeight: 110,
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      paddingVertical: 2,
+    },
+    cardTextTop: {
+      alignSelf: "stretch",
     },
     centerName: {
-      fontSize: 16,
+      fontSize: 20,
       fontWeight: "800",
       color: colors.text,
-      textAlign: "center",
+      textAlign: "left",
       writingDirection: "rtl",
-      minHeight: 42,
-      paddingHorizontal: 2,
-      lineHeight: 22,
+    },
+    centerMeta: {
+      fontSize: 15,
+      color: colors.textMuted,
+      textAlign: "left",
+      writingDirection: "rtl",
+      marginTop: 10,
+    },
+    ratingRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 6,
+      alignSelf: "flex-end",
+    },
+    ratingValue: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.text,
     },
     emptyWrap: {
-      width: "100%",
-      marginTop: 20,
+      marginTop: 40,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.surface,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 22,
+      gap: 10,
     },
     emptyText: {
       color: colors.textMuted,
-      fontSize: 14,
+      fontSize: 15,
+      fontWeight: "600",
       textAlign: "center",
       writingDirection: "rtl",
     },

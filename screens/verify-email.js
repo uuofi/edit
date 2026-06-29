@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { API_BASE_URL, normalizeUserRole, saveToken, saveUserRole } from "../lib/api";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import { useAppTheme } from "../lib/useTheme";
 
 export default function VerifyEmailScreen() {

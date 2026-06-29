@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { specialtyCatalog } from "../../lib/constants/specialties";
-import { fetchDoctorsBySpecialty } from "../../lib/api";
+import { API_BASE_URL, fetchDoctorsBySpecialty } from "../../lib/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppTheme } from "../../lib/useTheme";
 
@@ -38,6 +38,14 @@ const compareDoctorsByRating = (a, b) => {
   const nameA = String(a?.displayName || a?.name || "");
   const nameB = String(b?.displayName || b?.name || "");
   return nameA.localeCompare(nameB, "ar");
+};
+
+const resolveMediaUrl = (value) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  const prefix = raw.startsWith("/") ? "" : "/";
+  return `${API_BASE_URL}${prefix}${raw}`;
 };
 
 export default function SpecialtyScreen() {
@@ -128,7 +136,7 @@ export default function SpecialtyScreen() {
       location: doctor.location,
       locationLat: doctor.locationLat,
       locationLng: doctor.locationLng,
-      avatarUrl: doctor.avatarUrl,
+      avatarUrl: resolveMediaUrl(doctor.avatarUrl),
       age: doctor.age,
       description: doctor.bio || doctor.description,
       bio: doctor.bio,
@@ -168,7 +176,7 @@ export default function SpecialtyScreen() {
       specialty: targetSpecialtyLabel,
       specialtySlug: targetSpecialtySlug,
       doctorId,
-      avatarUrl: selectedDoctor.avatarUrl,
+      avatarUrl: resolveMediaUrl(selectedDoctor.avatarUrl),
       location: selectedDoctor.location,
       locationLat: selectedDoctor.locationLat,
       locationLng: selectedDoctor.locationLng,
@@ -286,7 +294,7 @@ export default function SpecialtyScreen() {
                 >
                   {doctor.avatarUrl ? (
                     <Image
-                      source={{ uri: doctor.avatarUrl }}
+                      source={{ uri: resolveMediaUrl(doctor.avatarUrl) }}
                       style={styles.avatarImage}
                     />
                   ) : (

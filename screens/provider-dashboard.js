@@ -8,10 +8,11 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { fetchDoctorDashboard, logout } from "../lib/api";
+import { fetchDoctorDashboard, generatePatientDisplay, logout } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
 export default function ProviderDashboardScreen() {
@@ -21,6 +22,7 @@ export default function ProviderDashboardScreen() {
   const [doctor, setDoctor] = useState(null);
   const [stats, setStats] = useState({ pending: 0, confirmed: 0, total: 0 });
   const [loading, setLoading] = useState(true);
+  const [openingDisplay, setOpeningDisplay] = useState(false);
 
   const loadDoctor = async () => {
     setLoading(true);
@@ -42,6 +44,28 @@ export default function ProviderDashboardScreen() {
 
   const handleGoToAppointments = () => {
     navigation.navigate("DoctorAppointments");
+  };
+
+  // 🖥️ فتح شاشة عرض أسماء المرضى (TV/شاشة الانتظار)
+  const handleOpenPatientDisplay = async () => {
+    if (openingDisplay) return;
+    setOpeningDisplay(true);
+    try {
+      const data = await generatePatientDisplay();
+      const url = data?.displayUrl;
+      if (!url) {
+        throw new Error("تعذّر إنشاء رابط الشاشة");
+      }
+      const canOpen = await Linking.canOpenURL(url).catch(() => true);
+      if (canOpen === false) {
+        throw new Error("تعذّر فتح الرابط على هذا الجهاز");
+      }
+      await Linking.openURL(url);
+    } catch (err) {
+      Alert.alert("خطأ", err?.message || "تعذّر فتح شاشة المرضى");
+    } finally {
+      setOpeningDisplay(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -103,6 +127,22 @@ export default function ProviderDashboardScreen() {
         >
           <Text style={styles.primaryButtonText}>فتح صفحة قبول الحجوزات</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.displayButton}
+          onPress={handleOpenPatientDisplay}
+          disabled={openingDisplay}
+          activeOpacity={0.85}
+        >
+          {openingDisplay ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.displayButtonText}>🖥️  فتح شاشة المرضى</Text>
+          )}
+        </TouchableOpacity>
+        <Text style={styles.displayHint}>
+          تُعرض أسماء المرضى المنتظرين (الدور + الاسم) على شاشة خارجية، وتتحدّث لحظياً.
+        </Text>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>نظرة عامة على الملف</Text>
@@ -228,12 +268,35 @@ const createStyles = (colors, isDark) =>
       borderRadius: 16,
       paddingVertical: 16,
       alignItems: "center",
-      marginBottom: 24,
+      marginBottom: 16,
     },
     primaryButtonText: {
       color: "#fff",
       fontSize: 16,
       fontWeight: "600",
+    },
+    displayButton: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      paddingVertical: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      minHeight: 54,
+    },
+    displayButtonText: {
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: "700",
+    },
+    displayHint: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 24,
+      lineHeight: 18,
     },
     section: {
       backgroundColor: colors.surface,

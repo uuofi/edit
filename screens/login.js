@@ -10,11 +10,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Image,
   Linking,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import { ArrowRight, Phone, Lock, Eye, EyeOff, ScanFace } from "lucide-react-native";
 import {
   API_BASE_URL,
   clearExpoPushToken,
@@ -28,11 +29,11 @@ import {
   getToken,
   getUserRole,
 } from "../lib/api";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
-import { useAppTheme } from "../lib/useTheme";
+import authColors from "../lib/authTheme";
+import { getSupportWhatsAppNumber } from "../lib/supportConfig";
+
 export default function LoginScreen() {
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(), []);
   const navigation = useNavigation();
   const route = useRoute();
   const params = route.params || {};
@@ -41,7 +42,6 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState(params.role || "patient");
-  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const extra =
     Constants?.expoConfig?.extra ||
@@ -50,6 +50,32 @@ export default function LoginScreen() {
     {};
   const privacyPolicyUrl = String(extra?.privacyPolicyUrl || "https://medicare-iq.com/privacy").trim();
   const termsUrl = String(extra?.termsUrl || "https://medicare-iq.com/terms").trim();
+  const supportWhatsAppDefault = getSupportWhatsAppNumber();
+
+  const normalizeWhatsApp = (value) => {
+    const digits = String(value || "").replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.startsWith("964")) return digits;
+    if (digits.startsWith("0")) return `964${digits.slice(1)}`;
+    return digits;
+  };
+
+  const openSupportWhatsApp = async (inputNumber) => {
+    const normalized = normalizeWhatsApp(inputNumber || supportWhatsAppDefault);
+    if (!normalized) {
+      Alert.alert("تنبيه", "رقم واتساب الدعم غير مضبوط حالياً.");
+      return;
+    }
+
+    const text = encodeURIComponent("مرحبا، انتهى اشتراك حساب الدكتور وأرغب بتجديده.");
+    const waUrl = `https://wa.me/${normalized}?text=${text}`;
+
+    try {
+      await Linking.openURL(waUrl);
+    } catch {
+      Alert.alert("خطأ", "تعذر فتح واتساب حالياً.");
+    }
+  };
 
   const openPrivacyPolicy = async () => {
     const url = String(privacyPolicyUrl || "").trim();
@@ -145,14 +171,8 @@ export default function LoginScreen() {
   }, [route.params?.role]);
 
   const handleLogin = async () => {
-
-    if (!privacyAccepted) {
-      Alert.alert("تنبيه", "يرجى الموافقة على سياسة الخصوصية قبل تسجيل الدخول.");
-      return;
-    }
-
     if (!phone || !password) {
-      Alert.alert("Error", "يرجى إدخال رقم الهاتف والرمز");
+      Alert.alert("تنبيه", "يرجى إدخال رقم الهاتف والرمز");
       return;
     }
 
@@ -172,7 +192,11 @@ export default function LoginScreen() {
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneDigits, password }),
+        body: JSON.stringify({
+          phone: phoneDigits,
+          password,
+          selectedRole: role,
+        }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -180,7 +204,35 @@ export default function LoginScreen() {
       const data = await res.json();
 
       if (!res.ok) {
-        Alert.alert("Login Failed", data.message || "رقم أو كلمة مرور غير صحيحة");
+        const status = Number(res.status || 0);
+        const errorCode = String(data?.code || "").trim();
+        const message = String(data?.message || "").trim();
+
+        if (normalizeUserRole(role) === "doctor") {
+          if (errorCode === "DOCTOR_ACCOUNT_NOT_FOUND" || status === 404) {
+            Alert.alert("تنبيه", "حساب الدكتور غير موجود");
+            return;
+          }
+
+          if (errorCode === "DOCTOR_SUBSCRIPTION_EXPIRED") {
+            Alert.alert(
+              "انتهاء الاشتراك",
+              message || "انتهى اشتراكك. يرجى التواصل مع الدعم لتجديد الاشتراك",
+              [
+                {
+                  text: "واتساب الدعم",
+                  onPress: () => {
+                    void openSupportWhatsApp();
+                  },
+                },
+                { text: "إغلاق", style: "cancel" },
+              ]
+            );
+            return;
+          }
+        }
+
+        Alert.alert("فشل تسجيل الدخول", message || "رقم أو كلمة مرور غير صحيحة");
         return;
       }
 
@@ -223,10 +275,10 @@ export default function LoginScreen() {
       }
 
       // OTP disabled; token should always be returned on success.
-      Alert.alert("Login Failed", "تعذر تسجيل الدخول. حاول مرة أخرى لاحقاً.");
+      Alert.alert("فشل تسجيل الدخول", "تعذر تسجيل الدخول. حاول مرة أخرى لاحقاً.");
     } catch (err) {
       console.log("Login error:", err);
-      Alert.alert("Error", "Something went wrong, please try again");
+      Alert.alert("خطأ", "حدث خطأ ما، يرجى المحاولة مرة أخرى");
     } finally {
       setLoading(false);
     }
@@ -248,273 +300,338 @@ export default function LoginScreen() {
     navigation.replace("RoleSelection");
   };
 
+  const handleFaceLogin = () => {
+    Alert.alert("الدخول بالبصمة", "ميزة الدخول باستخدام بصمة الوجه قيد التفعيل قريباً.");
+  };
+
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.replace("RoleSelection");
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      {/* Logo + Header */}
-      <View style={styles.header}>
-      
-          
-          
-          
-      <View >
-        <Image
-          source={require("../assets/images/im3.png")}
-          style={styles.logo}
-        />
-      </View>
-        <Text style={styles.appName}>MediCare</Text>
-        <Text style={styles.tagline}>
-          {role === "doctor" ? "دخول الأطباء" : "دخول المراجعين"}
-        </Text>
-      </View>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back */}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBack}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="رجوع"
+          >
+            <ArrowRight size={24} color={authColors.heading} strokeWidth={2.2} />
+          </TouchableOpacity>
 
-      {/* Form */}
-      <View style={styles.form}>
-        <View style={styles.field}>
-          <Text style={styles.label}>رقم الهاتف</Text>
-          <TextInput
-            placeholder="أدخل 10 أرقام تبدأ بـ7"
-            placeholderTextColor={colors.placeholder}
-            style={styles.input}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-            value={phone}
-            maxLength={10}
-            onChangeText={(t) => setPhone(normalizeIraqPhoneTo10Digits(t))}
-            multiline={false}
-            scrollEnabled={false}
-          />
-        </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>أهلاً بك مجدداً</Text>
+            <Text style={styles.subtitle}>
+              {role === "doctor" ? "تسجيل دخول الأطباء إلى حسابك" : "تسجيل الدخول إلى حسابك"}
+            </Text>
+          </View>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>الرمز</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="أدخل رمزك"
-              placeholderTextColor={colors.placeholder}
-              style={[styles.input, styles.passwordInput]}
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              multiline={false}
-              scrollEnabled={false}
-            />
+          {/* Form */}
+          <View style={styles.form}>
+            <View style={styles.field}>
+              <Text style={styles.label}>رقم الهاتف</Text>
+              <View style={styles.inputWrap}>
+                <Phone size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="أدخل 10 أرقام تبدأ بـ7"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                  autoCapitalize="none"
+                  textContentType="telephoneNumber"
+                  value={phone}
+                  maxLength={10}
+                  onChangeText={(t) => setPhone(normalizeIraqPhoneTo10Digits(t))}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>كلمة المرور</Text>
+              <View style={styles.inputWrap}>
+                <Lock size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="أدخل رمزك"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  secureTextEntry={!showPassword}
+                  textContentType="password"
+                  value={password}
+                  onChangeText={setPassword}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                >
+                  {showPassword ? (
+                    <EyeOff size={20} color={authColors.muted} strokeWidth={2} />
+                  ) : (
+                    <Eye size={20} color={authColors.muted} strokeWidth={2} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.forgotRow} onPress={handleForgotPassword}>
+              <Text style={styles.forgotText}>نسيت الرمز؟</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
-              style={styles.showPasswordButton}
-              onPress={() => setShowPassword((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+              style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
             >
-              <Text style={styles.showPasswordText}>{showPassword ? "إخفاء" : "إظهار"}</Text>
+              <Text style={styles.primaryButtonText}>
+                {loading ? "جارٍ تسجيل الدخول..." : "تسجيل الدخول"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>أو</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Face ID */}
+            <TouchableOpacity
+              style={styles.faceButton}
+              onPress={handleFaceLogin}
+              activeOpacity={0.85}
+            >
+              <ScanFace size={22} color={authColors.primary} strokeWidth={2} />
+              <Text style={styles.faceButtonText}>الدخول باستخدام بصمة الوجه</Text>
             </TouchableOpacity>
           </View>
-        </View>
 
-        
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          <Text style={styles.primaryButtonText}>
-            {loading ? "تسجيل الدخول..." : "تسجيل الدخول"}
-          </Text>
-        </TouchableOpacity>
+          {/* Footer */}
+          <View style={styles.footer}>
+            <View style={styles.signupRow}>
+              <Text style={styles.signupHint}>ليس لديك حساب؟ </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate(role === "lab" ? "LabSignup" : "Signup", { role })}
+              >
+                <Text style={styles.signupLink}>إنشاء حساب</Text>
+              </TouchableOpacity>
+            </View>
 
-        <View style={styles.consentRow}>
-          <TouchableOpacity
-            style={[styles.checkbox, privacyAccepted && styles.checkboxChecked]}
-            onPress={() => setPrivacyAccepted((v) => !v)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: privacyAccepted }}
-          >
-            {privacyAccepted ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </TouchableOpacity>
-          <Text style={styles.consentText}>
-            أوافق على{" "}
-            <Text style={styles.consentLink} onPress={openPrivacyPolicy}>
-              سياسة الخصوصية
+            <TouchableOpacity style={styles.switchRow} onPress={handleRoleSwitch}>
+              <Text style={styles.switchText}>تغيير نوع الحساب أو تسجيل خروج</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.consentNote}>
+              بتسجيل دخولك، أنت توافق على{" "}
+              <Text style={styles.consentLink} onPress={openPrivacyPolicy}>سياسة الخصوصية</Text>
+              {" "}و{" "}
+              <Text style={styles.consentLink} onPress={openTerms}>شروط الخدمة</Text>
             </Text>
-            <Text> و </Text>
-            <Text style={styles.consentLink} onPress={openTerms}>
-              شروط الخدمة
-            </Text>
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => navigation.navigate(role === "lab" ? "LabSignup" : "Signup", { role })}
-        >
-          <Text style={styles.secondaryButtonText}>إنشاء حساب</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.center} onPress={handleForgotPassword}>
-          <Text style={styles.linkText}>نسيت الرمز؟</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.center} onPress={handleRoleSwitch}>
-          <Text style={[styles.linkText, { color: colors.primary }]}>تغيير نوع الحساب أو تسجيل خروج</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={{ height: 32 }} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = () =>
   StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: authColors.background,
+    },
     root: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: authColors.background,
     },
     container: {
       flexGrow: 1,
-      backgroundColor: colors.background,
       paddingHorizontal: 24,
-      paddingVertical: 32,
-      justifyContent: "flex-start",
-      paddingBottom: 48,
+      paddingTop: 8,
+      paddingBottom: 32,
+    },
+    backButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: authColors.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: authColors.inputBorder,
     },
     header: {
+      marginTop: 28,
+      marginBottom: 28,
       alignItems: "center",
-      marginTop: 40,
     },
-    logo: {
-      width: 275,
-      height: 240,
-      borderRadius: 30,
-      marginBottom: 16,
-      marginTop: 90,
+    title: {
+      fontSize: 28,
+      fontWeight: "800",
+      color: authColors.heading,
+      textAlign: "center",
+      writingDirection: "rtl",
+      marginBottom: 8,
     },
-    appName: {
-      fontSize: 26,
-      fontWeight: "700",
-      color: colors.text,
-      marginBottom: 4,
-    },
-    tagline: {
-      fontSize: 14,
-      color: colors.textMuted,
+    subtitle: {
+      fontSize: 15,
+      color: authColors.muted,
+      textAlign: "center",
+      writingDirection: "rtl",
     },
     form: {
-      textAlign: "right",
+      marginTop: 4,
     },
-    consentRow: {
+    field: {
+      marginBottom: 18,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: authColors.body,
+      marginBottom: 8,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    inputWrap: {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
-      marginBottom: 14,
-      marginTop: 12,
-    },
-    checkbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
+      backgroundColor: authColors.inputBg,
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    checkboxChecked: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    checkboxMark: {
-      color: "#fff",
-      fontSize: 14,
-      fontWeight: "700",
-      lineHeight: 16,
-    },
-    consentText: {
-      flex: 1,
-      color: colors.text,
-      textAlign: "left",
-    },
-    consentLink: {
-      color: colors.primary,
-      textDecorationLine: "underline",
-      fontWeight: "600",
-    },
-    field: {
-      marginBottom: 16,
-    },
-    label: {
-      fontSize: 16,
-      color: colors.text,
-      marginBottom: 6,
-      textAlign: "left",
+      borderColor: authColors.inputBorder,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      height: 56,
     },
     input: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      flex: 1,
       fontSize: 16,
-      color: colors.text,
+      color: authColors.heading,
       textAlign: "right",
+      writingDirection: "rtl",
+      paddingVertical: 0,
     },
-    passwordRow: {
-      position: "relative",
-      justifyContent: "center",
+    forgotRow: {
+      alignSelf: "flex-start",
+      marginTop: 2,
+      marginBottom: 22,
     },
-    passwordInput: {
-      paddingLeft: 84,
-    },
-    showPasswordButton: {
-      position: "absolute",
-      left: 12,
-      paddingVertical: 8,
-      paddingHorizontal: 10,
-    },
-    showPasswordText: {
-      color: colors.primary,
+    forgotText: {
       fontSize: 14,
+      color: authColors.primary,
       fontWeight: "600",
     },
     primaryButton: {
-      backgroundColor: colors.primary,
-      borderRadius: 12,
-      paddingVertical: 14,
+      backgroundColor: authColors.primary,
+      borderRadius: 16,
+      height: 56,
       alignItems: "center",
-      marginTop: 8,
+      justifyContent: "center",
+      shadowColor: authColors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.28,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.6,
     },
     primaryButtonText: {
-      color: "#fff",
-      fontSize: 16,
-      fontWeight: "600",
+      color: authColors.onPrimary,
+      fontSize: 17,
+      fontWeight: "700",
     },
-    secondaryButton: {
-      borderRadius: 12,
-      paddingVertical: 14,
+    dividerRow: {
+      flexDirection: "row",
       alignItems: "center",
-      marginTop: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
+      marginVertical: 24,
+      gap: 12,
     },
-    secondaryButtonText: {
-      color: colors.text,
-      fontSize: 16,
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: authColors.divider,
     },
-    center: {
-      marginTop: 12,
-      alignItems: "center",
-    },
-    linkText: {
+    dividerText: {
       fontSize: 14,
-      color: colors.primary,
+      color: authColors.muted,
+    },
+    faceButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      height: 56,
+      borderRadius: 16,
+      borderWidth: 1.5,
+      borderColor: authColors.primarySoftBorder,
+      backgroundColor: authColors.card,
+    },
+    faceButtonText: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: authColors.body,
+    },
+    footer: {
+      marginTop: 28,
+      alignItems: "center",
+    },
+    signupRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    signupHint: {
+      fontSize: 15,
+      color: authColors.muted,
+    },
+    signupLink: {
+      fontSize: 15,
+      color: authColors.primary,
+      fontWeight: "700",
+    },
+    switchRow: {
+      marginTop: 16,
+    },
+    switchText: {
+      fontSize: 13,
+      color: authColors.muted,
+      textDecorationLine: "underline",
+    },
+    consentNote: {
+      marginTop: 18,
+      fontSize: 12,
+      lineHeight: 20,
+      color: authColors.muted,
+      textAlign: "center",
+      writingDirection: "rtl",
+      paddingHorizontal: 8,
+    },
+    consentLink: {
+      color: authColors.primary,
+      fontWeight: "600",
     },
   });

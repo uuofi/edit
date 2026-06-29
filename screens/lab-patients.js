@@ -37,7 +37,7 @@ export default function LabPatientsScreen() {
 
   const viewHistory = async (patient) => {
     try {
-      const orders = await fetchLabPatientOrders(patient.phone);
+      await fetchLabPatientOrders(patient.phone);
       navigation.navigate("LabOrders"); // could pass patientPhone as param for filtered view
     } catch (e) {
       Alert.alert("خطأ", e.message);

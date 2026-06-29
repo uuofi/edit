@@ -48,7 +48,7 @@ export default function PersonalInfoScreen() {
         setPhone(u?.phone ? normalizeIraqPhoneTo10Digits(u.phone) : "");
         setEmail(u?.email || "");
         setAge(u?.age ? String(u.age) : "");
-      } catch (err) {
+      } catch (_err) {
         Alert.alert("خطأ", "تعذر تحميل البيانات");
       } finally {
         active && setLoading(false);
@@ -71,7 +71,7 @@ export default function PersonalInfoScreen() {
           setPhone(u?.phone ? normalizeIraqPhoneTo10Digits(u.phone) : "");
           setEmail(u?.email || "");
           setAge(u?.age ? String(u.age) : "");
-        } catch (err) {
+        } catch (_err) {
           // نتجاهل هنا لتفادي تنبيهات مكررة
         } finally {
           setLoading(false);

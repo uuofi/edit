@@ -11,7 +11,6 @@ import { fetchLabProfile, updateLabProfile, logout } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
 const TL  = "#0D9488";
-const TLL = "#CCFBF1";
 
 const LAB_TYPES = [
   { key: "general",       label: "عام" },

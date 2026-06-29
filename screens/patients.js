@@ -347,6 +347,18 @@ export default function PatientsScreen() {
     closeModals();
   };
 
+  const openChatWithPatient = (patient) => {
+    if (!patient?.patientId) {
+      Alert.alert("تنبيه", "لا يمكن فتح محادثة بدون مراجع مرتبط.");
+      return;
+    }
+
+    navigation.navigate("AppointmentChat", {
+      patientId: patient.patientId,
+      patientName: patient.patientName || "المراجع",
+    });
+  };
+
   const handleUploadImage = async (kind = "prescription") => {
     try {
       const permissions = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -586,12 +598,6 @@ export default function PatientsScreen() {
   const enabledTemplate = useMemo(
     () => sortedTemplate.filter((f) => f.enabled !== false),
     [sortedTemplate]
-  );
-
-  // Get custom-only fields (non-built-in, enabled)
-  const customEnabledFields = useMemo(
-    () => enabledTemplate.filter((f) => !f.isBuiltIn),
-    [enabledTemplate]
   );
 
   // ── Dynamic form field rendering ──
@@ -881,6 +887,13 @@ export default function PatientsScreen() {
           <Feather name="edit-3" size={16} color={colors.primary} />
           <Text style={styles.outlineText}>إضافة ملاحظة/تقارير</Text>
         </TouchableOpacity>
+
+        {userRole === "doctor" ? (
+          <TouchableOpacity style={styles.outlineBtnCompact} onPress={() => openChatWithPatient(item)}>
+            <Feather name="message-circle" size={16} color={colors.primary} />
+            <Text style={styles.outlineText}>محادثة</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {userRole === "doctor" ? (
           <TouchableOpacity style={[styles.primaryBtn, styles.primaryBtnFull]} onPress={() => openManualBooking(item)}>

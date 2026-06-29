@@ -13,12 +13,20 @@ import {
   Image,
   Linking,
 } from "react-native";
-
-const PRIVACY_URL = "https://medicare-iq.com/privacy";
-const TERMS_URL = "https://medicare-iq.com/terms";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import * as ImagePicker from "expo-image-picker";
+import {
+  ArrowRight,
+  User,
+  Phone,
+  Lock,
+  Eye,
+  EyeOff,
+  Hash,
+  Check,
+  AlertTriangle,
+} from "lucide-react-native";
 import {
   API_BASE_URL,
   saveRoleSelection,
@@ -26,14 +34,16 @@ import {
   logout,
 } from "../lib/api";
 import { specialtyOptions } from "../lib/constants/specialties";
-import { useAppTheme } from "../lib/useTheme";
+import authColors from "../lib/authTheme";
+
+const PRIVACY_URL = "https://medicare-iq.com/privacy";
+const TERMS_URL = "https://medicare-iq.com/terms";
 
 export default function SignupScreen() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(), []);
 
   const params = route.params || {};
   const [role, setRole] = useState(params.role || "patient");
@@ -406,668 +416,721 @@ export default function SignupScreen() {
     navigation.replace("RoleSelection");
   };
 
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.replace("Login", { role });
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-      {/* Header */}
-      
-      <View style={styles.header}>
-        <Image  
-          source={require("../assets/images/im4.png")}
-          style={styles.logo}
-        />
-        <Text style={styles.appName}>MediCare</Text>
-        <Text style={styles.tagline}>
-          {role === "doctor" ? "سجّل كطبيب واحصل على أدوات الإدارة" : "أنشئ حساب المراجع"}
-        </Text>
-      </View>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back */}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBack}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="رجوع"
+          >
+            <ArrowRight size={24} color={authColors.heading} strokeWidth={2.2} />
+          </TouchableOpacity>
 
-      {/* Form */}
-      <View style={styles.form}>
-
-        {/* ── تنبيه خاص بالمريض ── */}
-        {role === "patient" && (
-          <View style={styles.warningBox}>
-            <Text style={styles.warningIcon}>⚠️</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.warningTitle}>تنبيه مهم</Text>
-              <Text style={styles.warningText}>
-                يجب أن تكون المعلومات المُدخلة (الاسم، العمر، رقم الهاتف) معلومات المريض شخصياً حصراً.{" "}
-                لا يُسمح بإنشاء حساب بمعلومات شخص آخر.
-              </Text>
-            </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>إنشاء حساب جديد</Text>
+            <Text style={styles.subtitle}>
+              {role === "doctor" ? "سجّل كطبيب واحصل على أدوات الإدارة" : "ابدأ رحلتك الصحية معنا"}
+            </Text>
           </View>
-        )}
 
-        <View style={styles.field}>
-          <Text style={styles.label}>الاسم الكامل</Text>
-          <TextInput
-            placeholder="أدخل اسمك"
-            placeholderTextColor={colors.placeholder}
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            multiline={false}
-            scrollEnabled={false}
-          />
-        </View>
+          {/* Form */}
+          <View style={styles.form}>
 
-        <View style={styles.field}>
-          <Text style={styles.label}>العمر</Text>
-          <TextInput
-            placeholder="مثلاً 30"
-            placeholderTextColor={colors.placeholder}
-            style={styles.input}
-            keyboardType="numeric"
-            value={age}
-            onChangeText={setAge}
-            multiline={false}
-            scrollEnabled={false}
-          />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>رقم الهاتف</Text>
-          <TextInput
-            placeholder="أدخل 10 أرقام تبدأ بـ7"
-            placeholderTextColor={colors.placeholder}
-            style={styles.input}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-            value={phone}
-            maxLength={10}
-            onChangeText={(t) => setPhone(normalizeIraqPhoneTo10Digits(t))}
-            multiline={false}
-            scrollEnabled={false}
-          />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>كلمة المرور</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="أدخل كلمة المرور"
-              placeholderTextColor={colors.placeholder}
-              style={[styles.input, styles.passwordInput]}
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              multiline={false}
-              scrollEnabled={false}
-            />
-            <TouchableOpacity
-              style={styles.showPasswordButton}
-              onPress={() => setShowPassword((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
-            >
-              <Text style={styles.showPasswordText}>{showPassword ? "إخفاء" : "إظهار"}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>تأكيد كلمة المرور</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="أكد كلمة المرور"
-              placeholderTextColor={colors.placeholder}
-              style={[styles.input, styles.passwordInput]}
-              secureTextEntry={!showConfirm}
-              value={confirm}
-              onChangeText={setConfirm}
-              multiline={false}
-              scrollEnabled={false}
-            />
-            <TouchableOpacity
-              style={styles.showPasswordButton}
-              onPress={() => setShowConfirm((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={showConfirm ? "إخفاء تأكيد كلمة المرور" : "إظهار تأكيد كلمة المرور"}
-            >
-              <Text style={styles.showPasswordText}>{showConfirm ? "إخفاء" : "إظهار"}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {role === "doctor" && (
-          <>
-            <View style={styles.field}>
-              <Text style={styles.label}>التخصص الطبي</Text>
-              <View style={styles.specialtyOptionsRow}>
-                {specialtyOptions.map((option) => {
-                  const selected = option.value === doctorSpecialty;
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[
-                        styles.specialtyOption,
-                        selected && styles.specialtyOptionSelected,
-                      ]}
-                      onPress={() => setDoctorSpecialty(option.value)}
-                    >
-                      <Text
-                        style={[
-                          styles.specialtyOptionText,
-                          selected && styles.specialtyOptionTextSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>رقم الترخيص</Text>
-              <TextInput
-                placeholder="أدخل رقم الترخيص أو الهوية المهنية"
-                placeholderTextColor={colors.placeholder}
-                style={styles.input}
-                value={licenseNumber}
-                onChangeText={setLicenseNumber}
-                multiline={false}
-                scrollEnabled={false}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>نمط التسعير</Text>
-              <View style={styles.consultationModeRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.consultationModeChip,
-                    hasFixedConsultation && styles.consultationModeChipActive,
-                  ]}
-                  onPress={() => setHasFixedConsultation(true)}
-                >
-                  <Text
-                    style={[
-                      styles.consultationModeChipText,
-                      hasFixedConsultation && styles.consultationModeChipTextActive,
-                    ]}
-                  >
-                    عندي استشارة ثابتة
+            {/* ── تنبيه خاص بالمريض ── */}
+            {role === "patient" && (
+              <View style={styles.warningBox}>
+                <AlertTriangle size={20} color="#C2410C" strokeWidth={2} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.warningTitle}>تنبيه مهم</Text>
+                  <Text style={styles.warningText}>
+                    يجب أن تكون المعلومات المُدخلة (الاسم، العمر، رقم الهاتف) معلومات المريض شخصياً حصراً.{" "}
+                    لا يُسمح بإنشاء حساب بمعلومات شخص آخر.
                   </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.consultationModeChip,
-                    !hasFixedConsultation && styles.consultationModeChipActive,
-                  ]}
-                  onPress={() => setHasFixedConsultation(false)}
-                >
-                  <Text
-                    style={[
-                      styles.consultationModeChipText,
-                      !hasFixedConsultation && styles.consultationModeChipTextActive,
-                    ]}
-                  >
-                    أحدد الأسعار من الخدمات
-                  </Text>
-                </TouchableOpacity>
+                </View>
               </View>
+            )}
 
-              {hasFixedConsultation ? (
+            <View style={styles.field}>
+              <Text style={styles.label}>الاسم الكامل</Text>
+              <View style={styles.inputWrap}>
+                <User size={20} color={authColors.muted} strokeWidth={2} />
                 <TextInput
-                  placeholder="رسوم الاستشارة (دينار)"
-                  placeholderTextColor={colors.placeholder}
-                  style={[styles.input, { marginTop: 10 }]}
-                  keyboardType="numeric"
-                  value={consultationFee}
-                  onChangeText={setConsultationFee}
+                  placeholder="أدخل اسمك"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  textContentType="name"
+                  value={name}
+                  onChangeText={setName}
                   multiline={false}
                   scrollEnabled={false}
                 />
-              ) : (
-                <Text style={{color: colors.placeholder, fontSize: 14, marginTop: 8}}>
-                  تقدر تضيف كل الخدمات والأسعار لاحقاً من صفحة الخدمات بعد تسجيل الدخول.
-                </Text>
-              )}
-
-              <Text style={{color: colors.placeholder, fontSize: 13, marginTop: 6}}>
-                إذا فعّلت الاستشارة الثابتة سيتم اعتمادها مباشرة كرسوم عامة للحجز.
-              </Text>
+              </View>
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>رقم الموظف للتواصل</Text>
-              <TextInput
-                placeholder="أدخل 10 أرقام تبدأ بـ7"
-                placeholderTextColor={colors.placeholder}
-                style={styles.input}
-                keyboardType="phone-pad"
-                value={secretaryPhone}
-                maxLength={10}
-                onChangeText={(t) => setSecretaryPhone(normalizeIraqPhoneTo10Digits(t))}
-                multiline={false}
-                scrollEnabled={false}
-              />
+              <Text style={styles.label}>العمر</Text>
+              <View style={styles.inputWrap}>
+                <Hash size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="مثلاً 30"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  keyboardType="numeric"
+                  value={age}
+                  onChangeText={setAge}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+              </View>
             </View>
 
-                    <View style={styles.field}>
-                      <Text style={styles.label}>الصورة الشخصية</Text>
-                      <View style={styles.avatarRow}>
-                        {avatarUri ? (
-                          <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
-                        ) : (
-                          <View style={styles.avatarPlaceholder}>
-                            <Text style={styles.avatarPlaceholderText}>لم يتم اختيار صورة</Text>
-                          </View>
-                        )}
-                        <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar}>
-                          <Text style={styles.avatarButtonText}>اختر صورة</Text>
+            <View style={styles.field}>
+              <Text style={styles.label}>رقم الهاتف</Text>
+              <View style={styles.inputWrap}>
+                <Phone size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="أدخل 10 أرقام تبدأ بـ7"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                  autoCapitalize="none"
+                  textContentType="telephoneNumber"
+                  value={phone}
+                  maxLength={10}
+                  onChangeText={(t) => setPhone(normalizeIraqPhoneTo10Digits(t))}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>كلمة المرور</Text>
+              <View style={styles.inputWrap}>
+                <Lock size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="أدخل كلمة المرور"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  secureTextEntry={!showPassword}
+                  textContentType="newPassword"
+                  value={password}
+                  onChangeText={setPassword}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                >
+                  {showPassword ? (
+                    <EyeOff size={20} color={authColors.muted} strokeWidth={2} />
+                  ) : (
+                    <Eye size={20} color={authColors.muted} strokeWidth={2} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>تأكيد كلمة المرور</Text>
+              <View style={styles.inputWrap}>
+                <Lock size={20} color={authColors.muted} strokeWidth={2} />
+                <TextInput
+                  placeholder="أكد كلمة المرور"
+                  placeholderTextColor={authColors.muted}
+                  style={styles.input}
+                  secureTextEntry={!showConfirm}
+                  textContentType="newPassword"
+                  value={confirm}
+                  onChangeText={setConfirm}
+                  multiline={false}
+                  scrollEnabled={false}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirm((v) => !v)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={showConfirm ? "إخفاء تأكيد كلمة المرور" : "إظهار تأكيد كلمة المرور"}
+                >
+                  {showConfirm ? (
+                    <EyeOff size={20} color={authColors.muted} strokeWidth={2} />
+                  ) : (
+                    <Eye size={20} color={authColors.muted} strokeWidth={2} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {role === "doctor" && (
+              <>
+                <View style={styles.field}>
+                  <Text style={styles.label}>التخصص الطبي</Text>
+                  <View style={styles.specialtyOptionsRow}>
+                    {specialtyOptions.map((option) => {
+                      const selected = option.value === doctorSpecialty;
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            styles.chip,
+                            selected && styles.chipSelected,
+                          ]}
+                          onPress={() => setDoctorSpecialty(option.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              selected && styles.chipTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
                         </TouchableOpacity>
-                      </View>
-                    </View>
+                      );
+                    })}
+                  </View>
+                </View>
 
-                    <View style={styles.field}>
-                      <Text style={styles.label}>موقع الممارسة أو المستشفى</Text>
-                      <TextInput
-                        placeholder="مثلاً: بغداد، عيادة الرعاية"
-                        placeholderTextColor={colors.placeholder}
-                        style={styles.input}
-                        value={practiceLocation}
-                        onChangeText={setPracticeLocation}
-                      />
+                <View style={styles.field}>
+                  <Text style={styles.label}>رقم الترخيص</Text>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      placeholder="أدخل رقم الترخيص أو الهوية المهنية"
+                      placeholderTextColor={authColors.muted}
+                      style={styles.input}
+                      value={licenseNumber}
+                      onChangeText={setLicenseNumber}
+                      multiline={false}
+                      scrollEnabled={false}
+                    />
+                  </View>
+                </View>
 
-                      <TouchableOpacity
-                        style={styles.mapPickerButton}
-                        onPress={() =>
-                          navigation.navigate("LocationPicker", {
-                            returnTo: "Signup",
-                            formState: buildSignupFormState(),
-                            title: "اختيار موقع العيادة",
-                            initialLatitude: practiceLocationLat,
-                            initialLongitude: practiceLocationLng,
-                            initialAddress: practiceLocation,
-                          })
-                        }
+                <View style={styles.field}>
+                  <Text style={styles.label}>نمط التسعير</Text>
+                  <View style={styles.consultationModeRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.chip,
+                        hasFixedConsultation && styles.chipSelected,
+                      ]}
+                      onPress={() => setHasFixedConsultation(true)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          hasFixedConsultation && styles.chipTextSelected,
+                        ]}
                       >
-                        <Text style={styles.mapPickerButtonText}>اختيار الموقع من الخريطة</Text>
-                      </TouchableOpacity>
-                    </View>
+                        عندي استشارة ثابتة
+                      </Text>
+                    </TouchableOpacity>
 
-                    <View style={styles.field}>
-                      <Text style={styles.label}>الشهادة المهنية</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.chip,
+                        !hasFixedConsultation && styles.chipSelected,
+                      ]}
+                      onPress={() => setHasFixedConsultation(false)}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          !hasFixedConsultation && styles.chipTextSelected,
+                        ]}
+                      >
+                        أحدد الأسعار من الخدمات
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {hasFixedConsultation ? (
+                    <View style={[styles.inputWrap, { marginTop: 10 }]}>
                       <TextInput
-                        placeholder="اكتب اسم الشهادة أو الصادرة من أي جهة"
-                        placeholderTextColor={colors.placeholder}
+                        placeholder="رسوم الاستشارة (دينار)"
+                        placeholderTextColor={authColors.muted}
                         style={styles.input}
-                        value={certification}
-                        onChangeText={setCertification}
+                        keyboardType="numeric"
+                        value={consultationFee}
+                        onChangeText={setConsultationFee}
+                        multiline={false}
+                        scrollEnabled={false}
                       />
                     </View>
+                  ) : (
+                    <Text style={styles.helperText}>
+                      تقدر تضيف كل الخدمات والأسعار لاحقاً من صفحة الخدمات بعد تسجيل الدخول.
+                    </Text>
+                  )}
 
-                    <View style={styles.field}>
-                      <Text style={styles.label}>السيرة الذاتية المختصرة</Text>
-                      <TextInput
-                        placeholder="اكتب خبراتك وأبرز التخصصات"
-                        placeholderTextColor={colors.placeholder}
-                        style={[styles.input, styles.multilineInput]}
-                        value={cv}
-                        onChangeText={setCv}
-                        multiline
-                        numberOfLines={4}
-                      />
-                    </View>
-          </>
-        )}
+                  <Text style={styles.helperText}>
+                    إذا فعّلت الاستشارة الثابتة سيتم اعتمادها مباشرة كرسوم عامة للحجز.
+                  </Text>
+                </View>
 
-        {/* ── سياسة الخصوصية وشروط الخدمة ── */}
-        <TouchableOpacity
-          style={styles.termsRow}
-          onPress={() => setTermsAgreed((v) => !v)}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.termsCheckbox, termsAgreed && styles.termsCheckboxChecked]}>
-            {termsAgreed && <Text style={styles.termsCheckMark}>✓</Text>}
+                <View style={styles.field}>
+                  <Text style={styles.label}>رقم الموظف للتواصل</Text>
+                  <View style={styles.inputWrap}>
+                    <Phone size={20} color={authColors.muted} strokeWidth={2} />
+                    <TextInput
+                      placeholder="أدخل 10 أرقام تبدأ بـ7"
+                      placeholderTextColor={authColors.muted}
+                      style={styles.input}
+                      keyboardType="phone-pad"
+                      value={secretaryPhone}
+                      maxLength={10}
+                      onChangeText={(t) => setSecretaryPhone(normalizeIraqPhoneTo10Digits(t))}
+                      multiline={false}
+                      scrollEnabled={false}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>الصورة الشخصية</Text>
+                  <View style={styles.avatarRow}>
+                    {avatarUri ? (
+                      <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+                    ) : (
+                      <View style={styles.avatarPlaceholder}>
+                        <Text style={styles.avatarPlaceholderText}>لم يتم اختيار صورة</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity style={styles.avatarButton} onPress={handlePickAvatar}>
+                      <Text style={styles.avatarButtonText}>اختر صورة</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>موقع الممارسة أو المستشفى</Text>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      placeholder="مثلاً: بغداد، عيادة الرعاية"
+                      placeholderTextColor={authColors.muted}
+                      style={styles.input}
+                      value={practiceLocation}
+                      onChangeText={setPracticeLocation}
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.mapPickerButton}
+                    onPress={() =>
+                      navigation.navigate("LocationPicker", {
+                        returnTo: "Signup",
+                        formState: buildSignupFormState(),
+                        title: "اختيار موقع العيادة",
+                        initialLatitude: practiceLocationLat,
+                        initialLongitude: practiceLocationLng,
+                        initialAddress: practiceLocation,
+                      })
+                    }
+                  >
+                    <Text style={styles.mapPickerButtonText}>اختيار الموقع من الخريطة</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>الشهادة المهنية</Text>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      placeholder="اكتب اسم الشهادة أو الصادرة من أي جهة"
+                      placeholderTextColor={authColors.muted}
+                      style={styles.input}
+                      value={certification}
+                      onChangeText={setCertification}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>السيرة الذاتية المختصرة</Text>
+                  <View style={[styles.inputWrap, styles.multilineWrap]}>
+                    <TextInput
+                      placeholder="اكتب خبراتك وأبرز التخصصات"
+                      placeholderTextColor={authColors.muted}
+                      style={[styles.input, styles.multilineInput]}
+                      value={cv}
+                      onChangeText={setCv}
+                      multiline
+                      numberOfLines={4}
+                    />
+                  </View>
+                </View>
+              </>
+            )}
+
+            {/* ── سياسة الخصوصية وشروط الخدمة ── */}
+            <TouchableOpacity
+              style={styles.termsRow}
+              onPress={() => setTermsAgreed((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.termsCheckbox, termsAgreed && styles.termsCheckboxChecked]}>
+                {termsAgreed && <Check size={14} color={authColors.onPrimary} strokeWidth={3} />}
+              </View>
+              <Text style={styles.termsText}>
+                أوافق على{" "}
+                <Text
+                  style={styles.termsLink}
+                  onPress={() => Linking.openURL(PRIVACY_URL)}
+                >
+                  سياسة الخصوصية
+                </Text>
+                {" "}و{" "}
+                <Text
+                  style={styles.termsLink}
+                  onPress={() => Linking.openURL(TERMS_URL)}
+                >
+                  شروط الخدمة
+                </Text>
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.primaryButton, (!termsAgreed || loading) && styles.primaryButtonDisabled]}
+              onPress={handleSignup}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryButtonText}>
+                {loading ? "جارٍ الإنشاء..." : "إنشاء حساب"}
+              </Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.termsText}>
-            أوافق على{" "}
-            <Text
-              style={styles.termsLink}
-              onPress={() => Linking.openURL(PRIVACY_URL)}
-            >
-              سياسة الخصوصية
-            </Text>
-            {" "}و{" "}
-            <Text
-              style={styles.termsLink}
-              onPress={() => Linking.openURL(TERMS_URL)}
-            >
-              شروط الخدمة
-            </Text>
-          </Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.primaryButton, !termsAgreed && styles.primaryButtonDisabled]}
-          onPress={handleSignup}
-          disabled={loading}
-        >
-          <Text style={styles.primaryButtonText}>
-            {loading ? "جارٍ الإنشاء..." : "إنشاء حساب"}
-          </Text>
-        </TouchableOpacity>
+          {/* Footer */}
+          <View style={styles.footer}>
+            <View style={styles.loginRow}>
+              <Text style={styles.loginHint}>لديك حساب بالفعل؟ </Text>
+              <TouchableOpacity onPress={() => navigation.replace("Login", { role })}>
+                <Text style={styles.loginLink}>تسجيل الدخول</Text>
+              </TouchableOpacity>
+            </View>
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => navigation.replace("Login")}
-        >
-          <Text style={styles.secondaryButtonText}>العودة لتسجيل الدخول</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.center} onPress={handleRoleSwitch}>
-          <Text style={styles.linkText}>تغيير نوع الحساب أو تسجيل خروج</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={{ height: 32 }} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <TouchableOpacity style={styles.switchRow} onPress={handleRoleSwitch}>
+              <Text style={styles.switchText}>تغيير نوع الحساب أو تسجيل خروج</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = () =>
   StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: authColors.background,
+    },
     root: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: authColors.background,
     },
     container: {
       flexGrow: 1,
-      backgroundColor: colors.background,
       paddingHorizontal: 24,
-      paddingVertical: 32,
-      justifyContent: "flex-start",
-      paddingBottom: 48,
+      paddingTop: 8,
+      paddingBottom: 32,
     },
-  header: {
-    alignItems: "center",
-    marginTop: 40,
-  },
-  logo: {
-   width: 250,
-    height: 250,
-    borderRadius: 30,
-    marginBottom: 16,
-    marginTop: 0,
-  },
-  appName: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: colors.text,
-    marginBottom: 4,
-  },
-  tagline: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: "center",
-    writingDirection: "rtl",
-  },
-  form: {
-    marginTop: 32,
-  },
-  field: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    color: colors.textMuted,
-    marginBottom: 6,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    textAlign: "right",
-    writingDirection: "rtl",
-  },
-  passwordRow: {
-    position: "relative",
-    justifyContent: "center",
-  },
-  passwordInput: {
-    paddingLeft: 84,
-  },
-  showPasswordButton: {
-    position: "absolute",
-    left: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  showPasswordText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  secondaryButtonText: {
-    color: colors.textMuted,
-    fontSize: 16,
-  },
-  center: {
-    marginTop: 12,
-    alignItems: "center",
-  },
-  linkText: {
-    fontSize: 14,
-    color: colors.primary,
-  },
-  avatarRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  avatarPreview: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-  },
-  avatarPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.surfaceAlt,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarPlaceholderText: {
-    fontSize: 10,
-    color: colors.placeholder,
-    textAlign: "center",
-  },
-  avatarButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-  },
-  avatarButtonText: {
-    color: "#fff",
-    fontSize: 14,
-  },
-  mapPickerButton: {
-    marginTop: 10,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.surfaceAlt,
-  },
-  mapPickerButtonText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "600",
-    writingDirection: "rtl",
-  },
-  multilineInput: {
-    minHeight: 90,
-    textAlignVertical: "top",
-  },
-  specialtyOptionsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-  specialtyOption: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    margin: 4,
-  },
-  specialtyOptionSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surfaceAlt,
-  },
-  specialtyOptionText: {
-    fontSize: 13,
-    color: colors.text,
-  },
-  specialtyOptionTextSelected: {
-    color: colors.primary,
-    fontWeight: "600",
-  },
-  consultationModeRow: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    justifyContent: "flex-start",
-    gap: 8,
-  },
-  consultationModeChip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: colors.surface,
-  },
-  consultationModeChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surfaceAlt,
-  },
-  consultationModeChipText: {
-    color: colors.text,
-    fontSize: 13,
-    writingDirection: "rtl",
-  },
-  consultationModeChipTextActive: {
-    color: colors.primary,
-    fontWeight: "700",
-  },
-  // ── Warning banner (patient) ──
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: "#FFF7ED",
-    borderWidth: 1,
-    borderColor: "#FB923C",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    gap: 8,
-  },
-  warningIcon: {
-    fontSize: 20,
-    marginTop: 1,
-  },
-  warningTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#9A3412",
-    textAlign: "right",
-    marginBottom: 4,
-  },
-  warningText: {
-    fontSize: 13,
-    color: "#C2410C",
-    textAlign: "right",
-    lineHeight: 20,
-  },
-  // ── Terms row ──
-  termsRow: {
-    flexDirection: "row-reverse",
-    alignItems: "flex-start",
-    gap: 10,
-    marginTop: 14,
-    marginBottom: 4,
-    paddingHorizontal: 2,
-  },
-  termsCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 1,
-    flexShrink: 0,
-  },
-  termsCheckboxChecked: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  termsCheckMark: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 16,
-  },
-  termsText: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: "right",
-    lineHeight: 20,
-  },
-  termsLink: {
-    color: colors.primary,
-    fontWeight: "600",
-    textDecorationLine: "underline",
-  },
-  primaryButtonDisabled: {
-    opacity: 0.5,
-  },
+    backButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: authColors.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: authColors.inputBorder,
+    },
+    header: {
+      marginTop: 20,
+      marginBottom: 24,
+      alignItems: "center",
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: "800",
+      color: authColors.heading,
+      textAlign: "center",
+      writingDirection: "rtl",
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 15,
+      color: authColors.muted,
+      textAlign: "center",
+      writingDirection: "rtl",
+    },
+    form: {
+      marginTop: 4,
+    },
+    field: {
+      marginBottom: 18,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: authColors.body,
+      marginBottom: 8,
+      textAlign: "right",
+      writingDirection: "rtl",
+    },
+    inputWrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: authColors.inputBg,
+      borderWidth: 1,
+      borderColor: authColors.inputBorder,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      minHeight: 56,
+    },
+    input: {
+      flex: 1,
+      fontSize: 16,
+      color: authColors.heading,
+      textAlign: "right",
+      writingDirection: "rtl",
+      paddingVertical: 0,
+    },
+    helperText: {
+      color: authColors.muted,
+      fontSize: 13,
+      marginTop: 8,
+      textAlign: "right",
+      writingDirection: "rtl",
+      lineHeight: 20,
+    },
+    primaryButton: {
+      backgroundColor: authColors.primary,
+      borderRadius: 16,
+      height: 56,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 8,
+      shadowColor: authColors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.28,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.5,
+    },
+    primaryButtonText: {
+      color: authColors.onPrimary,
+      fontSize: 17,
+      fontWeight: "700",
+    },
+    footer: {
+      marginTop: 24,
+      alignItems: "center",
+    },
+    loginRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    loginHint: {
+      fontSize: 15,
+      color: authColors.muted,
+    },
+    loginLink: {
+      fontSize: 15,
+      color: authColors.primary,
+      fontWeight: "700",
+    },
+    switchRow: {
+      marginTop: 16,
+    },
+    switchText: {
+      fontSize: 13,
+      color: authColors.muted,
+      textDecorationLine: "underline",
+    },
+    // ── Avatar (doctor) ──
+    avatarRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    avatarPreview: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+    },
+    avatarPlaceholder: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: authColors.inputBg,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: authColors.inputBorder,
+    },
+    avatarPlaceholderText: {
+      fontSize: 10,
+      color: authColors.muted,
+      textAlign: "center",
+    },
+    avatarButton: {
+      backgroundColor: authColors.primary,
+      paddingVertical: 12,
+      paddingHorizontal: 18,
+      borderRadius: 14,
+    },
+    avatarButtonText: {
+      color: authColors.onPrimary,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    mapPickerButton: {
+      marginTop: 10,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: "center",
+      borderWidth: 1.5,
+      borderColor: authColors.primarySoftBorder,
+      backgroundColor: authColors.primarySoft,
+    },
+    mapPickerButtonText: {
+      color: authColors.primary,
+      fontSize: 14,
+      fontWeight: "600",
+      writingDirection: "rtl",
+    },
+    multilineWrap: {
+      alignItems: "flex-start",
+      paddingVertical: 12,
+    },
+    multilineInput: {
+      minHeight: 90,
+      textAlignVertical: "top",
+    },
+    specialtyOptionsRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "flex-end",
+      gap: 8,
+    },
+    consultationModeRow: {
+      flexDirection: "row-reverse",
+      flexWrap: "wrap",
+      justifyContent: "flex-start",
+      gap: 8,
+    },
+    chip: {
+      borderWidth: 1.5,
+      borderColor: authColors.inputBorder,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 14,
+      backgroundColor: authColors.card,
+    },
+    chipSelected: {
+      borderColor: authColors.primary,
+      backgroundColor: authColors.primarySoft,
+    },
+    chipText: {
+      fontSize: 13,
+      color: authColors.body,
+    },
+    chipTextSelected: {
+      color: authColors.primary,
+      fontWeight: "700",
+    },
+    // ── Warning banner (patient) ──
+    warningBox: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      backgroundColor: "#FFF7ED",
+      borderWidth: 1,
+      borderColor: "#FED7AA",
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 20,
+      gap: 10,
+    },
+    warningTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: "#9A3412",
+      textAlign: "right",
+      writingDirection: "rtl",
+      marginBottom: 4,
+    },
+    warningText: {
+      fontSize: 13,
+      color: "#C2410C",
+      textAlign: "right",
+      writingDirection: "rtl",
+      lineHeight: 20,
+    },
+    // ── Terms row ──
+    termsRow: {
+      flexDirection: "row-reverse",
+      alignItems: "flex-start",
+      gap: 10,
+      marginTop: 6,
+      marginBottom: 6,
+      paddingHorizontal: 2,
+    },
+    termsCheckbox: {
+      width: 24,
+      height: 24,
+      borderRadius: 8,
+      borderWidth: 2,
+      borderColor: authColors.inputBorder,
+      backgroundColor: authColors.card,
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: 1,
+      flexShrink: 0,
+    },
+    termsCheckboxChecked: {
+      borderColor: authColors.primary,
+      backgroundColor: authColors.primary,
+    },
+    termsText: {
+      flex: 1,
+      fontSize: 13,
+      color: authColors.body,
+      textAlign: "right",
+      writingDirection: "rtl",
+      lineHeight: 22,
+    },
+    termsLink: {
+      color: authColors.primary,
+      fontWeight: "700",
+    },
   });

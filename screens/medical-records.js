@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   Image,
@@ -16,7 +17,21 @@ import { Feather } from "@expo/vector-icons";
 import { fetchPatientMedicalRecords, ApiError, logout, API_BASE_URL } from "../lib/api";
 import { useAppTheme } from "../lib/useTheme";
 
-const EMPTY_MEDICAL_RECORDS_IMAGE = require("../assets/images/منشور سوشيال ميديا Instagram Post عن صيام شهر رمضان المبارك.png");
+// فلاتر السجلات — مطابقة للتصميم (الترتيب RTL: الكل على اليمين)
+const FILTERS = [
+  { key: "all", label: "الكل" },
+  { key: "labs", label: "التحاليل" },
+  { key: "radiology", label: "الأشعة" },
+  { key: "reports", label: "التقارير" },
+];
+
+// نزيل اسم اليوم من التاريخ ("الأحد، 12 مارس 2024" → "12 مارس 2024")
+const cleanDate = (value) => {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  const parts = v.split("،");
+  return (parts.length > 1 ? parts.slice(1).join("،") : v).trim();
+};
 
 export default function MedicalRecordsScreen() {
   const navigation = useNavigation();
@@ -25,15 +40,15 @@ export default function MedicalRecordsScreen() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [previewUri, setPreviewUri] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [preview, setPreview] = useState(null); // { kind, uri?, note?, title? }
 
-  const normalizeUrl = (uri) => {
+  const normalizeUrl = useCallback((uri) => {
     if (!uri) return "";
-    // allow http/https/data/file/content schemes as-is
     if (/^(https?:|data:|file:|content:)/i.test(uri)) return uri;
     const path = uri.startsWith("/") ? uri : `/${uri}`;
     return `${API_BASE_URL}${path}`;
-  };
+  }, []);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -70,46 +85,125 @@ export default function MedicalRecordsScreen() {
     loadRecords();
   }, [loadRecords]);
 
-  const medicalRecords = useMemo(() => {
-    return records.filter((item) => {
-      const hasNote = Boolean(item?.doctorNote);
-      const hasRx = Array.isArray(item?.prescriptions) && item.prescriptions.length > 0;
-      return hasNote || hasRx;
-    });
-  }, [records]);
+  // نسطّح السجلات إلى عناصر مفردة (ملاحظة / تقرير أشعة / تحليل) — كل عنصر بطاقة
+  const items = useMemo(() => {
+    const out = [];
+    for (const rec of records) {
+      const date = cleanDate(rec.appointmentDate);
+      const specialty = String(rec.specialty || "").trim();
 
-  const renderPrescriptions = (items = []) => {
-    if (!items.length) return null;
-    return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.prescriptionRow}
-      >
-        {items.map((uri, idx) => {
-          const fullUri = normalizeUrl(uri);
-          return (
-            <View key={`${uri}-${idx}`} style={styles.prescriptionItem}>
-              <TouchableOpacity onPress={() => setPreviewUri(fullUri)}>
-                <Image source={{ uri: fullUri }} style={styles.prescriptionImage} />
-              </TouchableOpacity>
-            </View>
-          );
-        })}
-      </ScrollView>
-    );
+      if (rec.doctorNote) {
+        out.push({
+          id: `${rec._id}:note`,
+          type: "reports",
+          title: specialty ? `تقرير زيارة — ${specialty}` : "تقرير زيارة",
+          date,
+          kind: "note",
+          note: rec.doctorNote,
+        });
+      }
+      (Array.isArray(rec.reports) ? rec.reports : []).forEach((uri, i) => {
+        out.push({
+          id: `${rec._id}:rep:${i}`,
+          type: "radiology",
+          title: "تقرير أشعة",
+          date,
+          kind: "image",
+          uri: normalizeUrl(uri),
+        });
+      });
+      (Array.isArray(rec.prescriptions) ? rec.prescriptions : []).forEach((uri, i) => {
+        out.push({
+          id: `${rec._id}:rx:${i}`,
+          type: "labs",
+          title: "تحاليل / وصفة طبية",
+          date,
+          kind: "image",
+          uri: normalizeUrl(uri),
+        });
+      });
+    }
+    return out;
+  }, [records, normalizeUrl]);
+
+  const visibleItems = useMemo(() => {
+    if (activeFilter === "all") return items;
+    return items.filter((it) => it.type === activeFilter);
+  }, [items, activeFilter]);
+
+  const openItem = (item) => {
+    if (item.kind === "image") {
+      setPreview({ kind: "image", uri: item.uri, title: item.title });
+    } else {
+      setPreview({ kind: "note", note: item.note, title: item.title });
+    }
   };
 
+  const renderCard = ({ item }) => (
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.85}
+      onPress={() => openItem(item)}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.title}${item.date ? "، " + item.date : ""}`}
+    >
+      <View style={styles.cardIcon}>
+        <Feather name="file-text" size={26} color={colors.primary} />
+      </View>
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+        {item.date ? (
+          <View style={styles.cardDateRow}>
+            <Feather name="calendar" size={15} color={colors.primary} />
+            <Text style={styles.cardDate}>{item.date}</Text>
+          </View>
+        ) : null}
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
+      {/* Header — زر رجوع يسار، العنوان بالوسط */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Feather name="arrow-right" size={22} color={colors.text} />
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.iconBtn}
+          accessibilityLabel="رجوع"
+        >
+          <Feather name="arrow-left" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>السجلات الطبية</Text>
-        <TouchableOpacity onPress={loadRecords} style={styles.refreshBtn}>
-          <Feather name="refresh-ccw" size={18} color={colors.primary} />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>سجلاتي الطبية</Text>
+        <View style={styles.iconBtn} />
+      </View>
+
+      {/* صف الفلاتر */}
+      <View style={styles.filtersWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filtersRow}
+        >
+          {FILTERS.map((f) => {
+            const active = f.key === activeFilter;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.chip, active && styles.chipActive]}
+                activeOpacity={0.8}
+                onPress={() => setActiveFilter(f.key)}
+                accessibilityRole="button"
+                accessibilityState={active ? { selected: true } : {}}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {loading ? (
@@ -117,54 +211,67 @@ export default function MedicalRecordsScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.body}>
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {!error && medicalRecords.length === 0 ? (
-            <View style={styles.emptyStateWrap}>
-              <Image
-                source={EMPTY_MEDICAL_RECORDS_IMAGE}
-                style={styles.emptyStateImage}
-                resizeMode="contain"
-              />
-              <Text style={styles.emptyStateText}>لايوجد سجلات طبية مرفوعة حاليا</Text>
-            </View>
-          ) : null}
-
-          {medicalRecords.map((item) => {
-            const hasNote = Boolean(item.doctorNote);
-            const hasRx = Array.isArray(item.prescriptions) && item.prescriptions.length > 0;
-            return (
-              <View key={item._id} style={styles.card}>
-                {hasNote ? (
-                  <View>
-                    <Text style={styles.sectionLabel}>ملاحظة الطبيب</Text>
-                    <Text style={styles.sectionText}>{item.doctorNote}</Text>
-                  </View>
-                ) : null}
-
-                {hasRx ? (
-                  <View style={{ marginTop: 10 }}>
-                    <Text style={styles.sectionLabel}>الوصفة</Text>
-                    {renderPrescriptions(item.prescriptions)}
-                  </View>
-                ) : null}
+        <FlatList
+          data={visibleItems}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          renderItem={renderCard}
+          ListHeaderComponent={
+            error ? <Text style={styles.errorText}>{error}</Text> : null
+          }
+          ListEmptyComponent={
+            !error ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
+                  <Feather name="folder" size={28} color={colors.primary} />
+                </View>
+                <Text style={styles.emptyText}>
+                  {activeFilter === "all"
+                    ? "لا توجد سجلات طبية حالياً."
+                    : "لا توجد سجلات في هذا التصنيف."}
+                </Text>
+                <Text style={styles.emptySubText}>
+                  ستظهر هنا تقاريرك وتحاليلك بعد كل زيارة.
+                </Text>
               </View>
-            );
-          })}
-        </ScrollView>
+            ) : null
+          }
+          ListFooterComponent={<View style={{ height: 16 }} />}
+        />
       )}
 
-      <Modal visible={!!previewUri} transparent animationType="fade">
+      {/* المعاينة (صورة أو ملاحظة نصية) */}
+      <Modal visible={!!preview} transparent animationType="fade">
         <View style={styles.previewOverlay}>
-          <TouchableOpacity style={styles.previewBackdrop} onPress={() => setPreviewUri("")} />
+          <TouchableOpacity
+            style={styles.previewBackdrop}
+            onPress={() => setPreview(null)}
+          />
           <View style={styles.previewCard}>
-            <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="contain" />
-            <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.previewButton} onPress={() => setPreviewUri("")}>
-                <Feather name="x" size={18} color={colors.danger} />
-                <Text style={[styles.previewButtonText, { color: colors.danger }]}>اغلاق</Text>
-              </TouchableOpacity>
-            </View>
+            {preview?.title ? (
+              <Text style={styles.previewTitle}>{preview.title}</Text>
+            ) : null}
+            {preview?.kind === "image" ? (
+              <Image
+                source={{ uri: preview.uri }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <ScrollView style={styles.previewNoteScroll}>
+                <Text style={styles.previewNote}>{preview?.note}</Text>
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={styles.previewButton}
+              onPress={() => setPreview(null)}
+            >
+              <Feather name="x" size={18} color={colors.danger} />
+              <Text style={[styles.previewButtonText, { color: colors.danger }]}>
+                إغلاق
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -174,107 +281,179 @@ export default function MedicalRecordsScreen() {
 
 const createStyles = (colors) =>
   StyleSheet.create({
-    screen: { flex: 1, backgroundColor: colors.background, writingDirection: "rtl" },
+    screen: { flex: 1, backgroundColor: colors.background },
     header: {
-      height: 56,
-      backgroundColor: colors.surface,
-      flexDirection: "row-reverse",
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 10,
     },
-    backBtn: {
-      width: 32,
-      height: 32,
+    iconBtn: {
+      width: 44,
+      height: 44,
       alignItems: "center",
       justifyContent: "center",
     },
     headerTitle: {
+      flex: 1,
+      textAlign: "center",
+      fontSize: 22,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    filtersWrap: {
+      marginBottom: 8,
+    },
+    filtersRow: {
+      flexDirection: "row-reverse",
+      paddingHorizontal: 20,
+      gap: 10,
+    },
+    chip: {
+      paddingHorizontal: 22,
+      paddingVertical: 11,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    chipActive: {
+      backgroundColor: colors.primary,
+    },
+    chipText: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.textMuted,
+    },
+    chipTextActive: {
+      color: "#FFFFFF",
+    },
+    loader: { flex: 1, alignItems: "center", justifyContent: "center" },
+    errorText: {
+      textAlign: "center",
+      color: colors.danger,
+      marginBottom: 12,
+    },
+    listContent: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+    },
+    card: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: 22,
+      padding: 18,
+      marginBottom: 18,
+      shadowColor: "#0B1F2A",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.06,
+      shadowRadius: 14,
+      elevation: 2,
+    },
+    cardIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 18,
+      backgroundColor: colors.primary + "14",
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: 16,
+    },
+    cardInfo: {
+      flex: 1,
+      alignItems: "flex-end",
+      justifyContent: "center",
+    },
+    cardTitle: {
+      fontSize: 19,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "right",
+      alignSelf: "stretch",
+    },
+    cardDateRow: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: 7,
+      marginTop: 12,
+    },
+    cardDate: {
+      fontSize: 15,
+      color: colors.textMuted,
+    },
+    emptyState: {
+      paddingVertical: 56,
+      alignItems: "center",
+    },
+    emptyIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      backgroundColor: colors.primary + "15",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
+    },
+    emptyText: {
       fontSize: 16,
       fontWeight: "600",
       color: colors.text,
-    },
-    refreshBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-    loader: { flex: 1, alignItems: "center", justifyContent: "center" },
-    errorText: { textAlign: "center", color: colors.danger, marginTop: 16 },
-    emptyStateWrap: {
-      width: "100%",
-      alignItems: "center",
-      justifyContent: "center",
-      marginTop: 28,
-      marginBottom: 8,
-      paddingHorizontal: 16,
-    },
-    emptyStateImage: {
-      width: 220,
-      height: 220,
-      marginBottom: 10,
-    },
-    emptyStateText: {
+      marginBottom: 4,
       textAlign: "center",
+    },
+    emptySubText: {
+      fontSize: 13,
       color: colors.textMuted,
-      fontSize: 15,
-      fontWeight: "600",
-      writingDirection: "rtl",
+      textAlign: "center",
     },
-    body: { padding: 16, writingDirection: "rtl", alignItems: "stretch" },
-    card: {
-      backgroundColor: colors.surface,
-      borderRadius: 12,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 12,
-      alignItems: "flex-end",
-      writingDirection: "rtl",
-      width: "100%",
-    },
-    sectionLabel: { fontSize: 13, color: colors.textMuted, marginTop: 4, textAlign: "right" },
-    sectionText: { fontSize: 14, color: colors.text, lineHeight: 20, marginTop: 4, textAlign: "right" },
-    prescriptionRow: { marginTop: 8, flexDirection: "row-reverse", width: "100%" },
-    prescriptionItem: { marginLeft: 10 },
-    prescriptionImage: { width: 140, height: 140, borderRadius: 10 },
     previewOverlay: {
       flex: 1,
-      backgroundColor: colors.overlay,
+      backgroundColor: colors.overlay || "rgba(0,0,0,0.6)",
       justifyContent: "center",
       alignItems: "center",
       paddingHorizontal: 16,
     },
-    previewBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-    },
+    previewBackdrop: { ...StyleSheet.absoluteFillObject },
     previewCard: {
       width: "100%",
-      maxWidth: 420,
+      maxWidth: 440,
       backgroundColor: colors.surface,
-      borderRadius: 12,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: 18,
+      padding: 16,
+    },
+    previewTitle: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "right",
+      marginBottom: 12,
     },
     previewImage: {
       width: "100%",
-      height: 360,
-      borderRadius: 8,
+      height: 380,
+      borderRadius: 12,
       backgroundColor: colors.surfaceAlt,
     },
-    previewActions: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-      marginTop: 12,
+    previewNoteScroll: {
+      maxHeight: 320,
+    },
+    previewNote: {
+      fontSize: 15,
+      lineHeight: 24,
+      color: colors.text,
+      textAlign: "right",
     },
     previewButton: {
-      flexDirection: "row",
+      flexDirection: "row-reverse",
       alignItems: "center",
-      paddingVertical: 10,
-      paddingHorizontal: 14,
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 12,
+      marginTop: 14,
       backgroundColor: colors.surfaceAlt,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: 12,
     },
-    previewButtonText: { marginLeft: 8, fontSize: 14, fontWeight: "700" },
+    previewButtonText: { fontSize: 15, fontWeight: "700" },
   });

@@ -38,6 +38,8 @@ desktop-dist/
 *.mobileprovision
 *.pem
 *.orig.*
+*.keystore
+upload-key.zip
 
 # ========================================
 # Kotlin / Gradle
